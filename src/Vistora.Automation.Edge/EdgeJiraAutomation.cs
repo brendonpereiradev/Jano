@@ -246,9 +246,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var status = await StatusAsync(cancellationToken);
         var closed = Regex.IsMatch(status, @"^(Fechado|Closed|Concluído|Concluido)$", RegexOptions.IgnoreCase);
         var started = Regex.IsMatch(status, @"^Em andamento N2$", RegexOptions.IgnoreCase);
-        var assignee = await Ui.ValueAsync("issue.assignee", ["Assignee", "Responsável"]);
-        var assignLink = Page.GetByText(new Regex(@"^(Assign to me|Atribuir a mim)$", RegexOptions.IgnoreCase)).Filter(new() { Visible = true });
-        var self = !string.IsNullOrEmpty(run.TechnicianName) && DomControls.Normalize(assignee) == DomControls.Normalize(run.TechnicianName) && await assignLink.CountAsync() == 0;
+        var assignee = await AssigneeAsync();
+        // O Jira pode manter a ação "Assign to me" ao lado do responsável já salvo.
+        var self = IsTechnician(assignee, run.TechnicianName);
         var resolutionMatches = false;
         var publicMatches = false;
         var teamMatches = false;
@@ -300,21 +300,73 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
 
     public async Task AssignAsync(VisitRun run, FloorRun floor)
     {
-        await Ui.ClickAsync("issue.assignToMe", ["Assign to me", "Atribuir a mim"]);
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
-        while (DateTimeOffset.UtcNow < deadline)
+        var pending = new HashSet<IRequest>();
+        var sync = new object();
+        var lastActivity = Stopwatch.GetTimestamp();
+        var mutations = 0;
+        void Requested(object? sender, IRequest request)
         {
-            var link = Page.GetByText(new Regex(@"^(Assign to me|Atribuir a mim)$", RegexOptions.IgnoreCase)).Filter(new() { Visible = true });
-            var assigned = await Ui.ValueAsync("issue.assignee", ["Assignee", "Responsável"]);
-            if (await link.CountAsync() == 0 && !Regex.IsMatch(assigned, @"^(Unassigned|Não atribuído|None)$", RegexOptions.IgnoreCase) && assigned.Length > 0)
-            {
-                run.TechnicianName = assigned;
-                return;
-            }
-            await Task.Delay(300);
+            if (request.Method is not ("POST" or "PUT" or "PATCH" or "DELETE") ||
+                request.ResourceType is not ("fetch" or "xhr" or "document") ||
+                !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Authority, new Uri(settings.JiraUrl).Authority, StringComparison.OrdinalIgnoreCase)) return;
+            lock (sync) { pending.Add(request); mutations++; lastActivity = Stopwatch.GetTimestamp(); }
         }
-        throw new InvalidOperationException($"Não foi possível confirmar a atribuição de {floor.IssueKey}.");
+        void Finished(object? sender, IRequest request)
+        {
+            lock (sync) { if (pending.Remove(request)) lastActivity = Stopwatch.GetTimestamp(); }
+        }
+        bool Settled()
+        {
+            lock (sync) return pending.Count == 0 && Stopwatch.GetElapsedTime(lastActivity).TotalMilliseconds >= 500;
+        }
+        Page.Request += Requested;
+        Page.RequestFinished += Finished;
+        Page.RequestFailed += Finished;
+        var begin = Stopwatch.GetTimestamp();
+        try
+        {
+            await Ui.ClickAsync("issue.assignToMe", ["Assign to me", "Atribuir a mim"]);
+            lock (sync) { lastActivity = Stopwatch.GetTimestamp(); }
+            diagnostics?.Event("assign.wait_started", "Aguardando o término do envio da atribuição.");
+            // A mudança visual é otimista: navegar antes da resposta pode cancelar a gravação.
+            do
+            {
+                if (Settled())
+                {
+                    var assigned = await AssigneeAsync();
+                    var link = Page.GetByText(new Regex(@"^(Assign to me|Atribuir a mim)$", RegexOptions.IgnoreCase)).Filter(new() { Visible = true });
+                    var matches = string.IsNullOrWhiteSpace(run.TechnicianName)
+                        ? assigned.Length > 0 && !Regex.IsMatch(assigned, @"^(Unassigned|Não atribuído|None)$", RegexOptions.IgnoreCase) && await link.CountAsync() == 0
+                        : IsTechnician(assigned, run.TechnicianName);
+                    if (matches && Settled())
+                    {
+                        if (string.IsNullOrWhiteSpace(run.TechnicianName)) run.TechnicianName = assigned;
+                        diagnostics?.Event("assign.wait_finished", "Envio encerrado; a atribuição será conferida na página recarregada.",
+                            details: new() { ["mutationCount"] = mutations }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+                        return;
+                    }
+                }
+                await Task.Delay(200);
+            } while (Stopwatch.GetElapsedTime(begin) < TimeSpan.FromSeconds(settings.TimeoutSeconds));
+            var error = new InvalidOperationException($"O envio da atribuição de {floor.IssueKey} não foi confirmado. O progresso foi salvo; confira o responsável no Jira e retome a visita.");
+            error.Data["DiagnosticCode"] = "ASSIGN_SUBMISSION_UNCONFIRMED";
+            throw error;
+        }
+        finally
+        {
+            Page.Request -= Requested;
+            Page.RequestFinished -= Finished;
+            Page.RequestFailed -= Finished;
+        }
     }
+
+    private async Task<string> AssigneeAsync() => DomControls.Normalize(Regex.Replace(
+        await Ui.ValueAsync("issue.assignee", ["Assignee", "Responsável"]),
+        @"\s*\b(Assign to me|Atribuir a mim)\s*$", "", RegexOptions.IgnoreCase));
+
+    private static bool IsTechnician(string assignee, string technician) =>
+        !string.IsNullOrWhiteSpace(technician) && string.Equals(DomControls.Normalize(assignee), DomControls.Normalize(technician), StringComparison.OrdinalIgnoreCase);
 
     private async Task OpenTransitionAsync(string action, CancellationToken cancellationToken = default)
     {

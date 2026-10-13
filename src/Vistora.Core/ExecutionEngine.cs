@@ -141,7 +141,16 @@ public sealed class ExecutionEngine(IRunStore store, Func<IJiraAutomation> autom
                     await PerformAsync(run, floor, PendingAction.Assign, $"Atribuindo {floor.Name}", () => browser.AssignAsync(run, floor));
                 else current.Skip(floor, "assignment_verified");
                 snapshot = await ReadAsync(browser, run, floor, cancellationToken);
-                if (!snapshot.AssignedToCurrentUser) throw new InvalidOperationException($"Não foi possível confirmar a atribuição de {floor.IssueKey} ao técnico conectado.");
+                await current.StepAsync("assign.verify", floor, () =>
+                {
+                    if (!snapshot.AssignedToCurrentUser)
+                    {
+                        var error = new InvalidOperationException($"Não foi possível confirmar a atribuição de {floor.IssueKey} ao técnico conectado.");
+                        error.Data["DiagnosticCode"] = "ASSIGN_VERIFICATION_FAILED";
+                        throw error;
+                    }
+                    return Task.CompletedTask;
+                });
                 floor.Stage = snapshot.Started ? FloorStage.Started : FloorStage.Assigned;
                 floor.PendingAction = PendingAction.None;
                 floor.Message = "Atribuição conferida";

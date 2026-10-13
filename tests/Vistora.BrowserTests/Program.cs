@@ -130,6 +130,15 @@ var closeRequests = 0;
 var transitionDelayMs = 1200;
 var missingTransition = false;
 var ambiguousTransition = false;
+var assignmentDelayMs = 1500;
+var rejectAssignment = false;
+var assignmentRequests = 0;
+app.MapPost("/fixture/assign", async (HttpContext ctx) =>
+{
+    assignmentRequests++;
+    await Task.Delay(assignmentDelayMs, ctx.RequestAborted);
+    return rejectAssignment ? Results.BadRequest() : Results.Ok();
+});
 app.MapPost("/fixture/close", async (HttpContext ctx) =>
 {
     closeRequests++;
@@ -183,6 +192,8 @@ try
     run = (await store.LoadRunsAsync()).Single();
     await engine.ExecuteAsync(run, default);
     Check(run.State == RunState.Completed, run.Message);
+    Check(assignmentRequests == 2, "A espera repetiu a atribuição.");
+    assignmentDelayMs = 0;
     Check(closeRequests == 2, "O fechamento foi reenviado durante a espera.");
     Check(run.Floors.Select(f => f.IssueKey).SequenceEqual(createdKeys), "A retomada substituiu os chamados existentes.");
     Check(portalVisits == portalVisitsBeforeResume, "A retomada abriu o formulário de criação.");
@@ -202,6 +213,9 @@ try
     Check(!eventText.Contains(profile.ReporterEmail) && !eventText.Contains(profile.FullName) && !eventText.Contains(profile.Floors[0].Resolution), "Dados do formulário vazaram para os logs.");
     Console.WriteLine("PASS: navegador registra etapas e retomadas sem valores privados do formulário.");
     Console.WriteLine("PASS: retomada após criação atribui, inicia e fecha os mesmos chamados.");
+    Check(transitionEvents.Count(e => e.EventName == "assign.wait_finished" && e.DurationMs >= 1500) == 2,
+        "A atribuição não aguardou a gravação lenta.");
+    Console.WriteLine("PASS: atribuição otimista aguarda a gravação sem repetir cliques; responsável salvo é reconhecido mesmo com Assign to me visível.");
     Console.WriteLine("PASS: menus de início e fechamento carregam com atraso; opção desabilitada e menuitem aguardam sem repetir cliques.");
     Check(run.Floors.Select(f => f.IssueKey).Distinct().Count() == 2, "Chamados não são distintos.");
     Console.WriteLine("PASS: fluxo completo com rótulos (required) ocultos e comboboxes cobertos pelo valor selecionado.");
@@ -216,6 +230,15 @@ try
         }
         Console.WriteLine("PASS: persistência de textos, equipe, responsável e status após reabrir o Edge.");
         Console.WriteLine("PASS: resolução ausente da tela principal conferida no histórico e comentário público conferido no portal.");
+        var otherTechnician = Serialization.Copy(run); otherTechnician.TechnicianName = "Outro Técnico";
+        var otherSnapshot = await automation.ReadIssueAsync(otherTechnician, otherTechnician.Floors[1], default);
+        Check(!otherSnapshot.AssignedToCurrentUser, "Responsável diferente foi aceito como técnico conectado.");
+        run.Settings.TimeoutSeconds = 1;
+        try { await automation.AssignAsync(otherTechnician, otherTechnician.Floors[1]); throw new Exception("Atribuição divergente foi aceita."); }
+        catch (InvalidOperationException ex) when (ex.Data["DiagnosticCode"]?.ToString() == "ASSIGN_SUBMISSION_UNCONFIRMED") { }
+        finally { run.Settings.TimeoutSeconds = 10; }
+        Check(otherTechnician.TechnicianName == "Outro Técnico", "A atribuição substituiu a identidade conhecida por outro responsável.");
+        Console.WriteLine("PASS: responsável divergente é rejeitado sem substituir a identidade conhecida do técnico.");
         var swapped = Serialization.Copy(run.Floors[0]); swapped.IssueKey = run.Floors[1].IssueKey;
         try { await automation.ReadIssueAsync(run, swapped, default); throw new Exception("Pavimento errado aceito."); }
         catch (InvalidOperationException ex) when (ex.Message.Contains("não corresponde")) { }
@@ -230,8 +253,36 @@ try
         Console.WriteLine("PASS: a atualização mais recente da resolução prevalece sobre o texto correto de uma atualização antiga.");
     }
 
-    rejectClosing = true;
     var rejectedProfile = Serialization.Copy(profile); rejectedProfile.Floors = [rejectedProfile.Floors[0]];
+    rejectAssignment = true;
+    var assignmentProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    assignmentProbe.Settings = Serialization.Copy(run.Settings);
+    assignmentProbe.TechnicianName = run.TechnicianName;
+    await engine.ExecuteAsync(assignmentProbe, default);
+    var assignmentFloor = assignmentProbe.Floors[0];
+    var assignmentKey = assignmentFloor.IssueKey;
+    Check(assignmentProbe.State == RunState.Failed && assignmentFloor.Stage == FloorStage.Created && assignmentFloor.PendingAction == PendingAction.Assign,
+        "Atribuição rejeitada foi aceita ou perdeu a pendência.");
+    Check(assignmentProbe.TechnicianName == run.TechnicianName, "Uma atribuição rejeitada alterou a identidade do técnico.");
+    using (var summary = JsonDocument.Parse(await File.ReadAllTextAsync(Directory.EnumerateFiles(store.DiagnosticsDirectory(assignmentProbe.Id), "summary.json", SearchOption.AllDirectories).Single())))
+        Check(summary.RootElement.GetProperty("errorCode").GetString() == "ASSIGN_VERIFICATION_FAILED" && summary.RootElement.GetProperty("failedStep").GetString() == "assign.verify",
+            "Atribuição rejeitada perdeu a causa técnica ou a etapa.");
+    rejectAssignment = false;
+    assignmentDelayMs = 2500;
+    assignmentProbe.Settings.TimeoutSeconds = 1;
+    var requestsBeforeAssignmentTimeout = assignmentRequests;
+    await engine.ExecuteAsync(assignmentProbe, default);
+    Check(assignmentProbe.State == RunState.Failed && assignmentFloor.PendingAction == PendingAction.Assign && assignmentRequests == requestsBeforeAssignmentTimeout + 1,
+        "A espera da atribuição ignorou o tempo limite, repetiu o clique ou perdeu a pendência.");
+    assignmentDelayMs = 0;
+    assignmentProbe.Settings.TimeoutSeconds = 10;
+    var requestsBeforeAssignmentResume = assignmentRequests;
+    await engine.ResumeAsync(assignmentProbe, _ => throw new Exception("Solicitou nova abertura."), default);
+    Check(assignmentProbe.State == RunState.Completed && assignmentFloor.IssueKey == assignmentKey && assignmentRequests == requestsBeforeAssignmentResume + 1,
+        "A retomada da atribuição não concluiu o mesmo chamado.");
+    Console.WriteLine("PASS: rejeição e demora da atribuição preservam a pendência; retomada conclui o mesmo chamado.");
+
+    rejectClosing = true;
     var rejectedRun = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
     rejectedRun.Settings = Serialization.Copy(run.Settings); rejectedRun.Settings.TimeoutSeconds = 2;
     await engine.ExecuteAsync(rejectedRun, default);
@@ -442,15 +493,25 @@ static class Fixture
     }else{
       const issue=issues[issueKey];if(!issue){main.innerHTML='<h1>Chamado não encontrado</h1>'}else{
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
-      ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type','Visita Preventiva')}${row('Reporter','Pessoa Teste')}${row('Assignee',issue.assignee)}${row('Equipe',issue.team)}${issueKey.endsWith('1')?'':row('Resolução do chamado',issue.resolution)}</dl>
-      ${issue.assignee==='Unassigned'?'<a id="assign" href="#">Assign to me</a>':''}
+      ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type','Visita Preventiva')}${row('Reporter','Pessoa Teste')}
+      <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
+      ${row('Equipe',issue.team)}${issueKey.endsWith('1')?'':row('Resolução do chamado',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
       if(issueKey.endsWith('1')){
         const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button role="tab" id="comments-tab">Comments</button><button role="tab" id="history-tab">History</button><div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
         document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do chamado',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do chamado','None',issue.resolution):''}</div>`},400)};
         document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
       }
-      document.getElementById('assign')?.addEventListener('click',e=>{e.preventDefault();issue.assignee='Técnico Teste';persist();location.reload()});
+      document.getElementById('assign')?.addEventListener('click',async e=>{
+        e.preventDefault();
+        // A interface antecipa o responsável; recarregar antes da resposta perde a gravação.
+        const assign=document.getElementById('assign');assign.hidden=true;
+        const field=document.getElementById('assignee-value');
+        field.textContent='Técnico Teste';
+        const response=await fetch('/fixture/assign',{method:'POST'});
+        if(!response.ok)return;
+        issue.assignee='Técnico Teste';persist();location.reload();
+      });
       setTimeout(()=>document.getElementById('status').hidden=false,700);
       document.getElementById('status').onclick=()=>{
         const menu=document.getElementById('menu');
