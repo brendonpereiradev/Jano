@@ -46,6 +46,7 @@ public partial class MainWindow : Window
         this.preview = preview;
         this.pendingPreview = pendingPreview;
         InitializeComponent();
+        VersionLabel.Text = $"Vistora {typeof(App).Assembly.GetName().Version!.ToString(3)}";
         RailItems.ItemsSource = PageList;
         SelectPage(startPage);
         this.diagnostics = diagnostics ?? new DiagnosticService(preview ? Path.Combine(Path.GetTempPath(), "VistoraPreview", Guid.NewGuid().ToString("N")) : null);

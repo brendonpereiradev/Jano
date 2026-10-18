@@ -11,7 +11,7 @@
           </ItemsControl>
         </StackPanel>
         <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Margin="22,0,22,28">
-          <TextBlock Text="Vistora 1.0.0" Foreground="#8CAFB8"/>
+          <TextBlock x:Name="VersionLabel" Foreground="#8CAFB8"/>
         </StackPanel>
       </DockPanel>
     </Border>
