@@ -133,6 +133,16 @@ var ambiguousTransition = false;
 var assignmentDelayMs = 1500;
 var rejectAssignment = false;
 var assignmentRequests = 0;
+var startRequests = 0;
+var startDelayMs = 1500;
+var startMode = "unrelated";
+var rejectStart = false;
+app.MapPost("/fixture/start", async (HttpContext ctx) =>
+{
+    startRequests++;
+    await Task.Delay(startDelayMs, ctx.RequestAborted);
+    return rejectStart ? Results.BadRequest() : Results.Ok();
+});
 app.MapPost("/fixture/assign", async (HttpContext ctx) =>
 {
     assignmentRequests++;
@@ -153,7 +163,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
         return Results.Content("<html><body><label>Abrir esta requisição em nome de*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
-    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition), "text/html; charset=utf-8");
+    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode), "text/html; charset=utf-8");
 });
 await app.StartAsync();
 var root = Path.Combine(Path.GetTempPath(), "VistoraBrowserTests", Guid.NewGuid().ToString("N"));
@@ -193,6 +203,9 @@ try
     await engine.ExecuteAsync(run, default);
     Check(run.State == RunState.Completed, run.Message);
     Check(assignmentRequests == 2, "A espera repetiu a atribuição.");
+    Check(startRequests == 2, "O inicio do atendimento foi reenviado durante a espera.");
+    startMode = "direct";
+    startDelayMs = 0;
     assignmentDelayMs = 0;
     Check(closeRequests == 2, "O fechamento foi reenviado durante a espera.");
     Check(run.Floors.Select(f => f.IssueKey).SequenceEqual(createdKeys), "A retomada substituiu os chamados existentes.");
@@ -203,6 +216,11 @@ try
     Check(eventFiles.Length == 2 && eventText.Contains("close.confirmed") && eventText.Contains("control.lookup"), "Linha do tempo do navegador ausente.");
     var transitionEvents = eventText.Split('\n', StringSplitOptions.RemoveEmptyEntries)
         .Select(line => JsonSerializer.Deserialize<DiagnosticEvent>(line, Serialization.Options)!).ToArray();
+    Check(transitionEvents.Count(e => e.EventName == "start.wait_finished" && e.DurationMs >= 1500) == 2,
+        "O inicio nao aguardou a gravacao lenta.");
+    Check(!transitionEvents.Any(e => e.Details?.GetValueOrDefault("controlKey")?.ToString() == "start.confirm"),
+        "Uma transicao direta foi confundida com uma confirmacao.");
+    Console.WriteLine("PASS: inicio direto com e sem dialogo alheio aguarda a gravacao sem procurar confirmacao ou repetir o envio.");
     foreach (var key in new[] { "issue.start", "issue.close" })
     {
         Check(transitionEvents.Count(e => e.EventName == "control.wait_finished" && e.Details?.GetValueOrDefault("controlKey")?.ToString() == key && e.DurationMs >= 1000) == 2,
@@ -349,6 +367,31 @@ try
         "A retomada após esperar/cancelar o menu duplicou o chamado ou o fechamento.");
     Console.WriteLine("PASS: seletor configurado aguarda o início; cancelar a espera do fechamento permite retomar o mesmo chamado.");
 
+    rejectStart = true; transitionDelayMs = 0; startDelayMs = 1500;
+    var startProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    startProbe.Settings = Serialization.Copy(run.Settings); startProbe.Settings.TimeoutSeconds = 3;
+    var startsBeforeReject = startRequests;
+    await engine.ExecuteAsync(startProbe, default);
+    var startKey = startProbe.Floors[0].IssueKey;
+    Check(startProbe.State == RunState.Failed && startProbe.Floors[0].Stage == FloorStage.Assigned &&
+        startProbe.Floors[0].PendingAction == PendingAction.Start && startRequests == startsBeforeReject + 1,
+        "Inicio rejeitado foi aceito, reenviado ou perdeu a pendencia.");
+    var startSummaryPath = Directory.EnumerateFiles(store.DiagnosticsDirectory(startProbe.Id), "summary.json", SearchOption.AllDirectories).Single();
+    using (var summary = JsonDocument.Parse(await File.ReadAllTextAsync(startSummaryPath)))
+        Check(summary.RootElement.GetProperty("errorCode").GetString() == "START_SUBMISSION_UNCONFIRMED" &&
+            summary.RootElement.GetProperty("failedStep").GetString() == "start.submit", "Inicio incerto perdeu a causa tecnica.");
+    rejectStart = false; startMode = "confirm"; startProbe.Settings.TimeoutSeconds = 10;
+    await engine.ExecuteAsync(startProbe, default);
+    Check(startProbe.State == RunState.Completed && startProbe.Floors[0].IssueKey == startKey && startRequests == startsBeforeReject + 2,
+        "Confirmacao atrasada nao retomou o mesmo chamado com um unico envio.");
+    var startEvents = string.Concat(await Task.WhenAll(Directory.EnumerateFiles(store.DiagnosticsDirectory(startProbe.Id), "events.jsonl", SearchOption.AllDirectories)
+        .Select(path => File.ReadAllTextAsync(path))));
+    Check(startEvents.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonSerializer.Deserialize<DiagnosticEvent>(line, Serialization.Options)!)
+        .Count(e => e.EventName == "action.clicked" && e.Details?.GetValueOrDefault("controlKey")?.ToString() == "start.confirm") == 1,
+        "Confirmacao do inicio foi ignorada ou clicada mais de uma vez.");
+    startMode = "direct";
+    Console.WriteLine("PASS: inicio rejeitado preserva pendencia; retomada aguarda confirmacao atrasada e habilitada sem duplicar chamado ou envio.");
+
     loginMode = true;
     var loginProbe = ProfileValidation.CreateRun(profile, new AppSettings()); loginProbe.Settings = Serialization.Copy(run.Settings);
     var loginDiagnostics = new DiagnosticAttempt(diagnostics, loginProbe, "access");
@@ -438,7 +481,7 @@ static void Check(bool condition, string message) { if (!condition) throw new Ex
 
 static class Fixture
 {
-    public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition) => """
+    public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
     <style>body{font:16px Segoe UI;padding:28px;background:#f6f8fb;color:#123743}main{max-width:850px;margin:auto;background:white;padding:24px}label{display:block;margin:14px 0 4px}input,textarea,select{font:inherit;padding:8px;width:90%}button{padding:10px;margin:8px}dl>div{display:flex;gap:24px;padding:8px;border-bottom:1px solid #ddd}dl>div>span:first-child{width:250px}dialog{width:650px}pre{white-space:pre-wrap}.options{background:#eef4f4}.options>div{padding:10px;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.combo-control{position:relative}.selected-overlay{position:absolute;inset:0;background:#eef4f4;z-index:2;padding:8px;width:90%}</style></head><body><main id="main"></main>
     <script>
@@ -447,6 +490,7 @@ static class Fixture
     const transitionDelayMs = __TRANSITION_DELAY_MS__;
     const missingTransition = __MISSING_TRANSITION__;
     const ambiguousTransition = __AMBIGUOUS_TRANSITION__;
+    const startMode = '__START_MODE__';
     const main=document.getElementById('main'); const issues=JSON.parse(localStorage.getItem('issues')||'{}');
     const issueKey=location.pathname.match(/SD-\d+/)?.[0];
     const escape=s=>String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
@@ -518,7 +562,28 @@ static class Fixture
         menu.innerHTML='<p>-</p><p>View workflow</p>';
         setTimeout(()=>{
         if(missingTransition)return;
-        if(issue.status==='Aguardando N2'){menu.innerHTML='<button id="start" disabled>Iniciar Atendimento</button>';if(ambiguousTransition){menu.innerHTML+='<button>Iniciar Atendimento</button>';return}const start=document.getElementById('start');if(issueKey.endsWith('2'))start.setAttribute('role','menuitem');setTimeout(()=>start.disabled=false,400);start.onclick=()=>{issue.status='Em andamento N2';persist();location.reload()}}
+        if(issue.status==='Aguardando N2'){menu.innerHTML='<button id="start" disabled>Iniciar Atendimento</button>';if(ambiguousTransition){menu.innerHTML+='<button>Iniciar Atendimento</button>';return}const start=document.getElementById('start');if(issueKey.endsWith('2'))start.setAttribute('role','menuitem');setTimeout(()=>start.disabled=false,400);start.onclick=()=>{
+          menu.innerHTML='';
+          const submitStart=async()=>{
+            const status=document.getElementById('status');status.textContent='Em andamento N2';status.disabled=true;
+            const response=await fetch('/fixture/start',{method:'POST'});
+            status.disabled=false;
+            if(!response.ok){status.textContent=issue.status;return}
+            issue.status='Em andamento N2';persist();location.reload();
+          };
+          if(startMode==='unrelated'&&issueKey.endsWith('1')){
+            const unrelated=document.createElement('div');unrelated.setAttribute('role','dialog');unrelated.textContent='Atualizando chamado';document.body.appendChild(unrelated);
+            submitStart();
+          }else if(startMode==='confirm'){
+            // O painel do chamado tambem pode ser um dialogo. A confirmacao chega depois.
+            main.setAttribute('role','dialog');
+            setTimeout(()=>{
+              const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML='<h2>Iniciar Atendimento</h2><button id="start-confirm" disabled>Confirmar</button>';document.body.appendChild(dialog);dialog.showModal();
+              const confirm=document.getElementById('start-confirm');setTimeout(()=>confirm.disabled=false,500);
+              confirm.onclick=()=>{confirm.disabled=true;dialog.close();submitStart()};
+            },900);
+          }else submitStart();
+        }}
         else if(issue.status==='Em andamento N2'){menu.innerHTML='<button id="close">Transitar para Fechado</button>';document.getElementById('close').onclick=()=>{
           const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>Transitar para Fechado</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Field Services</option></select><button id="confirm">Transitar para Fechado</button>`;document.body.appendChild(dialog);dialog.showModal();
           document.getElementById('reply').onclick=()=>dialog.dataset.public='true';
@@ -534,6 +599,6 @@ static class Fixture
     }
     </script></body></html>
     """.Replace("__HIDE_PUBLIC__", hidePublic ? "true" : "false").Replace("__WRONG_LATEST_RESOLUTION__", wrongLatestResolution ? "true" : "false")
-        .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("__START_MODE__", startMode)
         .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false");
 }
