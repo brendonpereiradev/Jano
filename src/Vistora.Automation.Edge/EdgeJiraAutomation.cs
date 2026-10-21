@@ -383,10 +383,95 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var status = await StatusAsync();
         if (!string.Equals(status, "Aguardando N2", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"{floor.IssueKey} está em “{status}”. O início de atendimento esperado é a partir de Aguardando N2.");
-        await OpenTransitionAsync("Iniciar Atendimento");
-        var dialog = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true });
-        if (await DomControls.IsUniqueVisibleAsync(dialog)) await Ui.ClickAsync("start.confirm", ["Iniciar Atendimento", "Confirm", "Confirmar"], dialog);
-        await WaitStatusAsync("Em andamento N2");
+        var pending = new HashSet<IRequest>();
+        var sync = new object();
+        var lastActivity = Stopwatch.GetTimestamp();
+        void Requested(object? sender, IRequest request)
+        {
+            if (request.Method is not ("POST" or "PUT" or "PATCH" or "DELETE") ||
+                request.ResourceType is not ("fetch" or "xhr" or "document") ||
+                !Uri.TryCreate(request.Url, UriKind.Absolute, out var uri) ||
+                !string.Equals(uri.Authority, new Uri(settings.JiraUrl).Authority, StringComparison.OrdinalIgnoreCase)) return;
+            lock (sync) { pending.Add(request); lastActivity = Stopwatch.GetTimestamp(); }
+        }
+        void Finished(object? sender, IRequest request)
+        {
+            lock (sync) { if (pending.Remove(request)) lastActivity = Stopwatch.GetTimestamp(); }
+        }
+        Page.Request += Requested;
+        Page.RequestFinished += Finished;
+        Page.RequestFailed += Finished;
+        try
+        {
+            await OpenTransitionAsync("Iniciar Atendimento");
+            var begin = Stopwatch.GetTimestamp();
+            lock (sync) { lastActivity = Stopwatch.GetTimestamp(); }
+            var confirmationClicked = false;
+            diagnostics?.Event("start.wait_started", "Aguardando o resultado do início do atendimento.");
+            do
+            {
+                var button = await StatusButtonLocatorAsync();
+                var started = await DomControls.IsUniqueVisibleAsync(button) &&
+                    string.Equals(DomControls.Normalize(await button.InnerTextAsync()), "Em andamento N2", StringComparison.OrdinalIgnoreCase);
+                // O Jira pode aplicar a transicao diretamente e manter outros dialogos visiveis.
+                // Nao procurar uma segunda confirmacao se o status ja mudou, nem navegar
+                // enquanto a interface antecipa um resultado que ainda esta sendo salvo.
+                if (started)
+                {
+                    bool settled;
+                    lock (sync) { settled = pending.Count == 0 && Stopwatch.GetElapsedTime(lastActivity).TotalMilliseconds >= 500; }
+                    if (settled && await button.IsEnabledAsync())
+                    {
+                        lock (sync) { settled = pending.Count == 0 && Stopwatch.GetElapsedTime(lastActivity).TotalMilliseconds >= 500; }
+                        if (!settled) continue;
+                        diagnostics?.Event("start.wait_finished", "Envio encerrado; o atendimento será conferido na página recarregada.",
+                            durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+                        return;
+                    }
+                }
+                else if (!confirmationClicked)
+                {
+                    // O painel do chamado tambem pode ter role=dialog. A confirmacao
+                    // precisa pertencer ao inicio do atendimento e ter um botao real.
+                    var dialogs = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true, HasNot = button });
+                    ILocator confirm;
+                    if (settings.SelectorOverrides.TryGetValue("start.confirm", out var selector))
+                        confirm = dialogs.Locator(selector).Filter(new() { Visible = true });
+                    else
+                        confirm = dialogs.Filter(new() { Has = Page.GetByText("Iniciar Atendimento", new() { Exact = true }) })
+                            .GetByRole(AriaRole.Button, new() { NameRegex = new("^(Iniciar Atendimento|Confirm|Confirmar)$", RegexOptions.IgnoreCase) })
+                            .Filter(new() { Visible = true });
+                    var count = await confirm.CountAsync();
+                    if (count > 1)
+                    {
+                        diagnostics?.Event("control.ambiguous", "Mais de uma confirmação de início foi encontrada.", DiagnosticLevel.Warning,
+                            new() { ["controlKey"] = "start.confirm", ["count"] = count }, errorCode: "FIELD_AMBIGUOUS");
+                        var error = new InvalidOperationException("O Jira exibiu mais de uma confirmação de início do atendimento. Confira a página antes de retomar.");
+                        error.Data["DiagnosticCode"] = "FIELD_AMBIGUOUS";
+                        throw error;
+                    }
+                    if (count == 1 && await confirm.IsEnabledAsync())
+                    {
+                        await confirm.ClickAsync(new() { Timeout = (float)Math.Max(1,
+                            (TimeSpan.FromSeconds(settings.TimeoutSeconds) - Stopwatch.GetElapsedTime(begin)).TotalMilliseconds) });
+                        confirmationClicked = true;
+                        lock (sync) { lastActivity = Stopwatch.GetTimestamp(); }
+                        diagnostics?.Event("action.clicked", "Confirmação do início enviada; o resultado ainda requer conferência.",
+                            details: new() { ["controlKey"] = "start.confirm" }, outcome: "clicked");
+                    }
+                }
+                await Task.Delay(200);
+            } while (Stopwatch.GetElapsedTime(begin) < TimeSpan.FromSeconds(settings.TimeoutSeconds));
+            var timeout = new InvalidOperationException($"O início do atendimento de {floor.IssueKey} não foi confirmado no tempo esperado. O progresso foi salvo; confira o Jira e retome a visita.");
+            timeout.Data["DiagnosticCode"] = "START_SUBMISSION_UNCONFIRMED";
+            throw timeout;
+        }
+        finally
+        {
+            Page.Request -= Requested;
+            Page.RequestFinished -= Finished;
+            Page.RequestFailed -= Finished;
+        }
     }
 
     public async Task PrepareCloseAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
@@ -474,18 +559,6 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             Page.RequestFinished -= Finished;
             Page.RequestFailed -= Finished;
         }
-    }
-
-    private async Task WaitStatusAsync(params string[] expected)
-    {
-        var deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            try { var status = await StatusAsync(); if (expected.Contains(status, StringComparer.OrdinalIgnoreCase)) return; }
-            catch (InvalidOperationException) { /* A página pode estar substituindo os controles. */ }
-            await Task.Delay(300);
-        }
-        throw new InvalidOperationException("A mudança de status ainda não foi confirmada. O progresso foi salvo para conferência.");
     }
 
     private async Task<bool> ResolutionMatchesAsync(string expected)
