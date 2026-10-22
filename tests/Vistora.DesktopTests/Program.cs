@@ -39,7 +39,8 @@ internal static class Program
             ("Limpeza respeita carregamento, execução, exportação e prévia", CleanupGuards),
             ("Falha parcial de limpeza mantém registros restantes na tela", PartialHistoryCleanup),
             ("Painel de status mostra a mensagem e a cor do estado da visita", RunStatusPanel),
-            ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit)
+            ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit),
+            ("Histórico mostra o motivo da visita selecionada com a cor do estado", HistoryMessage)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -330,14 +331,27 @@ internal static class Program
         run.State = RunState.Running; run.Message = "Faça login no Jira na janela do Edge. A execução continuará após o login.";
         Invoke(window, "ShowProgress", run);
         Check(status.Text == run.Message && status.Foreground == Color("Ink"), "O progresso da execução não atualizou o status.");
+        var count = Control<TextBlock>(window, "RunCount");
+        Check(count.Text == "0 de 1 fechados", "A contagem de pavimentos fechados não apareceu no painel.");
+        run.Floors[0].Stage = FloorStage.Closed; Invoke(window, "ShowProgress", run);
+        Check(count.Text == "1 de 1 fechados", "A contagem não acompanhou o progresso.");
+        run.Floors[0].Stage = FloorStage.Created;
         run.State = RunState.Interrupted; run.Message = "Execução interrompida. O progresso foi salvo.";
         Invoke(window, "ShowProgress", run);
         Check(status.Text == run.Message && status.Foreground == Color("Amber"), "A interrupção não foi destacada.");
-        Invoke(window, "SetBusy", true); Invoke(window, "Stop", null, null);
+        Invoke(window, "SetBusy", true);
+        var stop = Control<Button>(window, "StopButton");
+        Check(stop.Style == Application.Current.Resources["Danger"] && stop.IsEnabled, "O botão de parar não foi destacado.");
+        Invoke(window, "Stop", null, null);
         Check(status.Text.StartsWith("Parando") && status.Foreground == Color("Muted"), "Parar não informou a interrupção segura.");
+        Invoke(window, "UpdateInteraction");
+        Check(stop.Content.Equals("Parando…") && !stop.IsEnabled && stop.Visibility == Visibility.Visible, "O botão de parar não indicou a interrupção em andamento.");
+        Screenshot(window, "parando");
         Invoke(window, "SetBusy", false);
+        Check(stop.Content.Equals("Parar execução") && stop.Visibility == Visibility.Collapsed, "O botão de parar não voltou ao estado inicial.");
         Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
-        Check(SelectedRun(window) is null && status.Visibility == Visibility.Collapsed, "O status de outra visita continuou visível.");
+        Check(SelectedRun(window) is null && status.Visibility == Visibility.Collapsed && count.Text.Length == 0 &&
+            Control<Grid>(window, "RunStatusRow").Visibility == Visibility.Collapsed, "O status de outra visita continuou visível.");
     }
 
     private static void Discard(MainWindow window, Func<string, bool> confirm) => Await((Task)Invoke(window, "DiscardWithConfirmationAsync", confirm)!);
@@ -367,6 +381,23 @@ internal static class Program
         Check(SelectedRun(window) is null && Control<ComboBox>(window, "ProfilePicker").SelectedItem == profile && discard.Visibility == Visibility.Collapsed &&
             Control<Button>(window, "ExecuteButton").IsEnabled && Control<Button>(window, "ExecuteButton").Content.Equals("Executar visita preventiva"), "O perfil não voltou a permitir uma nova visita.");
         Check(Control<TextBlock>(window, "RunStatus").Text.Contains("descartada"), "O descarte não foi informado no painel de status.");
+    }
+
+    private static void HistoryMessage()
+    {
+        var profile = Profile(); var failed = Run(profile); failed.State = RunState.Failed; failed.Message = "O Jira recusou o envio do formulário.";
+        var completed = Run(Profile("Unidade B")); completed.State = RunState.Completed; completed.Message = "Visita concluída.";
+        using var fixture = new Fixture([profile], [failed, completed]); var window = fixture.Window;
+        Invoke(window, "SelectPage", 2);
+        var message = Control<TextBlock>(window, "HistoryRunMessage");
+        Control<DataGrid>(window, "HistoryGrid").SelectedItem = failed;
+        Check(message.Visibility == Visibility.Visible && message.Text == failed.Message && message.Foreground == Application.Current.Resources["Red"],
+            "O motivo da falha não apareceu em vermelho no Histórico.");
+        Screenshot(window, "historico-motivo");
+        Control<DataGrid>(window, "HistoryGrid").SelectedItem = completed;
+        Check(message.Text == completed.Message && message.Foreground == Application.Current.Resources["Teal"], "A mensagem não acompanhou a visita selecionada.");
+        Control<DataGrid>(window, "HistoryGrid").SelectedItem = null;
+        Check(message.Visibility == Visibility.Collapsed, "A mensagem ficou visível sem visita selecionada.");
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

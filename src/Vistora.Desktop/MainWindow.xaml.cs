@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private bool cleaningHistory;
     private bool exportingLog;
     private bool closing;
+    private bool stopping;
     private bool updatingPendingVisits;
     private VisitProfile? ActiveProfile => ProfilePicker.SelectedItem as VisitProfile;
     private VisitRun? SelectedPendingRun => (PendingVisitPicker?.SelectedItem as PendingVisitChoice)?.Run;
@@ -209,6 +210,8 @@ public partial class MainWindow : Window
         RunFloorList.ItemsSource = null; RunFloorList.ItemsSource = run?.Floors;
         RunFloorsScroll.Visibility = run is { Floors.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
         RunProgress.Value = run is null || run.Floors.Count == 0 ? 0 : run.Floors.Sum(f => (int)f.Stage) * 100d / (run.Floors.Count * 4);
+        RunCount.Text = run is { Floors.Count: > 0 } ? run.ProgressLabel : "";
+        UpdateStatusRow();
     }
     // A mensagem salva pelo motor explica o passo atual, o pedido de login e o motivo de uma falha.
     private void ShowRunStatus(VisitRun? run) => ShowStatus(run?.Message, run is null ? null : RunStateBrushConverter.For(run.State));
@@ -217,7 +220,10 @@ public partial class MainWindow : Window
         RunStatus.Text = text ?? "";
         RunStatus.Foreground = color ?? (Brush)FindResource("Ink");
         RunStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
+        UpdateStatusRow();
     }
+    private void UpdateStatusRow() => RunStatusRow.Visibility =
+        RunStatus.Visibility == Visibility.Visible || RunCount.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     private void UpdateExecutionControls()
     {
         var profileHasPending = ActiveProfile is not null && runs.Any(r => r.Profile.Id == ActiveProfile.Id && r.State != RunState.Completed);
@@ -233,7 +239,7 @@ public partial class MainWindow : Window
         profiles.ActiveProfileId = ActiveProfile.Id;
         RefreshPendingVisits(preferProfile: true);
         if (SelectedPendingRun is { } run) ShowProgress(run);
-        else RunProgress.Value = 0;
+        else { RunProgress.Value = 0; RunCount.Text = ""; UpdateStatusRow(); }
         if (!loading && !preview) await SafeAsync(() => store.SaveProfilesAsync(profiles));
     }
     private void SelectionChanged(object sender, RoutedEventArgs e) { if (SelectionSummary is not null) UpdateSelectionSummary(); }
@@ -286,6 +292,7 @@ public partial class MainWindow : Window
     private void SetBusy(bool value)
     {
         busy = value;
+        if (!value) stopping = false;
         UpdateInteraction();
     }
     private void UpdateInteraction()
@@ -293,7 +300,8 @@ public partial class MainWindow : Window
         foreach (var control in BusyLocked) control.IsEnabled = !busy && !cleaningHistory;
         StopButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         UpdateExecutionControls();
-        StopButton.IsEnabled = busy;
+        StopButton.IsEnabled = busy && !stopping;
+        StopButton.Content = stopping ? "Parando…" : "Parar execução";
         ClearHistoryButton.IsEnabled = !loading && !busy && !cleaningHistory && !exportingLog && !preview;
         ExportLogButton.IsEnabled = !cleaningHistory && !exportingLog;
     }
@@ -356,7 +364,7 @@ public partial class MainWindow : Window
     }
     private void Stop(object sender, RoutedEventArgs e)
     {
-        cancellation?.Cancel(); StopButton.IsEnabled = false;
+        cancellation?.Cancel(); stopping = true; UpdateInteraction();
         ShowStatus("Parando com segurança… a etapa em andamento será concluída antes de interromper.", (Brush)FindResource("Muted"));
     }
     private void ShowProgress(VisitRun run)
@@ -365,7 +373,7 @@ public partial class MainWindow : Window
         ShowRunStatus(run);
         HistoryGrid.Items.Refresh();
         if (HistoryGrid.SelectedItem is VisitRun selected && selected.Id == run.Id)
-            RunFloorGrid.Items.Refresh();
+        { RunFloorGrid.Items.Refresh(); ShowHistoryMessage(run); }
     }
     private async void CheckAccess(object sender, RoutedEventArgs e)
     {
@@ -420,6 +428,14 @@ public partial class MainWindow : Window
     {
         var run = HistoryGrid.SelectedItem as VisitRun;
         RunFloorGrid.ItemsSource = run?.Floors; RunFloorGrid.SelectedIndex = run is null ? -1 : 0;
+        ShowHistoryMessage(run);
+    }
+    // O motivo de uma falha ou interrupção fica visível sem precisar abrir o log.
+    private void ShowHistoryMessage(VisitRun? run)
+    {
+        HistoryRunMessage.Text = run?.Message ?? "";
+        HistoryRunMessage.Foreground = run is null ? (Brush)FindResource("Ink") : RunStateBrushConverter.For(run.State);
+        HistoryRunMessage.Visibility = string.IsNullOrWhiteSpace(run?.Message) ? Visibility.Collapsed : Visibility.Visible;
     }
     private string? AskForIssueKey(string floorName)
     {
