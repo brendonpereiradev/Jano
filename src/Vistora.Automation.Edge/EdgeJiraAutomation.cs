@@ -254,7 +254,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var teamMatches = false;
         if (closed)
         {
-            teamMatches = DomControls.Normalize(await Ui.ValueAsync("issue.team", ["Equipe"])) == run.Settings.ClosingTeam;
+            teamMatches = string.Equals(DomControls.Normalize(await Ui.ValueAsync("issue.team", ["Equipe"])),
+                DomControls.Normalize(run.Settings.ClosingTeam), StringComparison.OrdinalIgnoreCase);
             resolutionMatches = await ResolutionMatchesAsync(floor.Floor.Resolution);
             publicMatches = await PublicCommentMatchesAsync(key, floor.Floor.Resolution, cancellationToken);
         }
@@ -489,7 +490,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         if (await DomControls.IsUniqueVisibleAsync(reply)) await reply.ClickAsync();
         else await Ui.ClickAsync("close.publicMode", ["Reply to customer", "Responder ao cliente"], dialog);
         await Ui.FillAsync("close.publicComment", ["Comentário público", "Reply to customer", "Responder ao cliente", "Comentário", "Comment"], floor.Floor.Resolution, dialog);
-        var team = run.Settings.ClosingTeam;
+        // O valor vem do settings.json editado à mão; espaços extras não fazem parte do nome da equipe.
+        var team = DomControls.Normalize(run.Settings.ClosingTeam);
         await Ui.ChooseAsync("close.team", ["Equipe"], team, new Regex($"^{Regex.Escape(team)}$"), team, dialog);
         await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
         closingDialog = dialog;

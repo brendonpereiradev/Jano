@@ -97,7 +97,6 @@ public partial class MainWindow : Window
             {
                 profiles = await store.LoadProfilesAsync(); settings = await store.LoadSettingsAsync(); runs = await store.LoadRunsAsync();
                 settings.Diagnostics ??= new DiagnosticOptions();
-                settings.Diagnostics.MinimumLevel = DiagnosticLevel.Debug;
                 diagnostics.Configure(settings.Diagnostics);
                 diagnostics.Register(profiles);
                 if (profiles.Profiles.Count == 0)
@@ -475,7 +474,6 @@ public partial class MainWindow : Window
         var copy = Serialization.Copy(settings);
         copy.JiraUrl = JiraUrlBox.Text.Trim().TrimEnd('/'); copy.PortalUrl = PortalUrlBox.Text.Trim(); copy.QueueUrl = QueueUrlBox.Text.Trim();
         copy.Diagnostics ??= new DiagnosticOptions();
-        copy.Diagnostics.MinimumLevel = DiagnosticLevel.Debug;
         var errors = ProfileValidation.ValidateSettings(copy);
         if (errors.Count > 0) { ShowSettingsStatus(string.Join(Environment.NewLine, errors), true); return; }
         await SafeAsync(async () =>

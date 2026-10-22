@@ -181,6 +181,8 @@ run.Settings.JiraUrl = $"http://127.0.0.1:{port}";
 run.Settings.PortalUrl = run.Settings.JiraUrl + "/servicedesk/customer/portal/1/group/1/create/1";
 run.Settings.QueueUrl = run.Settings.JiraUrl + "/queue";
 run.Settings.TimeoutSeconds = 10;
+// Valor como pode ficar no settings.json editado à mão; o Jira exibe "Field Services".
+run.Settings.ClosingTeam = "  Field   Services ";
 var engine = new ExecutionEngine(store, () => new EdgeJiraAutomation(store), diagnostics);
 engine.Progress += r => Console.WriteLine(r.Message);
 var failures = 0;
@@ -247,6 +249,7 @@ try
             Check(snapshot.Closed && snapshot.ResolutionMatches && snapshot.PublicCommentMatches && snapshot.TeamMatches && snapshot.AssignedToCurrentUser, "Fechamento divergente.");
         }
         Console.WriteLine("PASS: persistência de textos, equipe, responsável e status após reabrir o Edge.");
+        Console.WriteLine("PASS: equipe de fechamento com espaços extras é escolhida e conferida pelo nome do Jira.");
         Console.WriteLine("PASS: resolução ausente da tela principal conferida no histórico e comentário público conferido no portal.");
         var otherTechnician = Serialization.Copy(run); otherTechnician.TechnicianName = "Outro Técnico";
         var otherSnapshot = await automation.ReadIssueAsync(otherTechnician, otherTechnician.Floors[1], default);

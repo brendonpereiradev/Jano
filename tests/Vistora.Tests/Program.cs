@@ -184,6 +184,8 @@ static Task ValidateProfile()
     profile.ReporterEmail = "inválido"; Check(ProfileValidation.Validate(profile, new()).Any(e => e.Contains("e-mail válido")), "E-mail inválido aceito.");
     var settings = new AppSettings { PortalUrl = "https://outro.example.com" };
     Check(ProfileValidation.Validate(Profile(), settings).Any(e => e.Contains("HTTPS")), "Outro domínio aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("ClosingTeam")), "Equipe de fechamento vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings()).Count == 0, "Configuração padrão recusada.");
     return Task.CompletedTask;
 }
 static string TestDirectory() => Path.Combine(Path.GetTempPath(), "VistoraTests", Guid.NewGuid().ToString("N"));

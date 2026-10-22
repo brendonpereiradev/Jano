@@ -148,6 +148,7 @@ public static class ProfileValidation
                 jira is null || !string.Equals(parsed.Authority, jira.Authority, StringComparison.OrdinalIgnoreCase))
                 errors.Add("O formulário e a fila devem pertencer ao mesmo endereço HTTPS do Jira.");
         if (settings.TimeoutSeconds is < 10 or > 180) errors.Add("O tempo de espera deve estar entre 10 e 180 segundos.");
+        if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Informe a equipe de fechamento em ClosingTeam, no arquivo settings.json.");
         return errors.Distinct().ToList();
     }
 

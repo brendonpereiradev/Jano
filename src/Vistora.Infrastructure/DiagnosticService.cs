@@ -77,6 +77,8 @@ public sealed partial class DiagnosticService : IDiagnosticSink, IAsyncDisposabl
     {
         options = new DiagnosticOptions
         {
+            // Único ponto que define o nível. Os detalhes ficam sempre ativos, porque as falhas no Jira real só
+            // podem ser analisadas depois, pelo log exportado; um MinimumLevel antigo no settings.json é ignorado.
             MinimumLevel = DiagnosticLevel.Debug,
             RetentionDays = Math.Clamp(value?.RetentionDays ?? 30, 1, 365),
             MaxStorageMegabytes = Math.Clamp(value?.MaxStorageMegabytes ?? 200, 1, 2000),
