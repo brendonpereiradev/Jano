@@ -1,0 +1,32 @@
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testes-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  testes:
+    name: Regras, persistência e interface
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Os testes do Edge ficam fora da CI até serem conferidos no executor do GitHub.
+      - name: Compilar e testar
+        shell: pwsh
+        run: .\scripts\Test.ps1 -SkipBrowser
