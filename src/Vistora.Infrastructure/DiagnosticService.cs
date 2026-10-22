@@ -225,6 +225,8 @@ public sealed partial class DiagnosticService : IDiagnosticSink, IAsyncDisposabl
         ["viewportWidth"] = 1440, ["viewportHeight"] = 960, ["timeoutSeconds"] = settings?.TimeoutSeconds,
         ["loginTimeoutMinutes"] = settings?.LoginTimeoutMinutes, ["diagnosticLevel"] = options.MinimumLevel.ToString(),
         ["selectorOverrideKeys"] = settings?.SelectorOverrides.Keys.Where(k => System.Text.RegularExpressions.Regex.IsMatch(k, @"^[a-zA-Z][a-zA-Z0-9.]{0,80}$")).Order().ToArray() ?? [],
+        // Só indica se o fluxo difere do padrão; os nomes de status e transições não são copiados.
+        ["jiraWorkflowCustomized"] = settings is not null && JsonSerializer.Serialize(settings.Jira) != JsonSerializer.Serialize(new JiraWorkflow()),
         ["edgeVersion"] = "indisponível", ["playwrightVersion"] = "indisponível"
     };
     public static string AppVersion => Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion

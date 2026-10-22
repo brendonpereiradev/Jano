@@ -60,6 +60,23 @@ public sealed class AppSettings
     public Dictionary<string, string> SelectorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ClosingTeam { get; set; } = "Field Services";
     public DiagnosticOptions Diagnostics { get; set; } = new();
+    private JiraWorkflow jira = new();
+    // Arquivos anteriores à 1.3.0 não têm esta seção e recebem os valores padrão.
+    public JiraWorkflow Jira { get => jira; set => jira = value ?? new(); }
+}
+
+// Nomes do fluxo do Jira da unidade. Mudanças no fluxo só exigem editar o settings.json.
+public sealed class JiraWorkflow
+{
+    public string WaitingStatus { get; set; } = "Aguardando N2";
+    public string InProgressStatus { get; set; } = "Em andamento N2";
+    private List<string> closedStatuses = ["Fechado", "Closed", "Concluído", "Concluido"];
+    public List<string> ClosedStatuses { get => closedStatuses; set => closedStatuses = value ?? []; }
+    public string RequestType { get; set; } = "Visita Preventiva";
+    public string StartTransition { get; set; } = "Iniciar Atendimento";
+    public string CloseTransition { get; set; } = "Transitar para Fechado";
+    // Caminho relativo ao endereço do Jira; {project} é o prefixo do chamado e {key}, o número completo.
+    public string IssuePath { get; set; } = "/jira/servicedesk/projects/{project}/queues/issue/{key}";
 }
 
 public enum FloorStage { Pending, Created, Assigned, Started, Closed }
@@ -149,6 +166,15 @@ public static class ProfileValidation
                 errors.Add("O formulário e a fila devem pertencer ao mesmo endereço HTTPS do Jira.");
         if (settings.TimeoutSeconds is < 10 or > 180) errors.Add("O tempo de espera deve estar entre 10 e 180 segundos.");
         if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Informe a equipe de fechamento em ClosingTeam, no arquivo settings.json.");
+        var workflow = settings.Jira;
+        foreach (var (name, value) in new[] { ("WaitingStatus", workflow.WaitingStatus), ("InProgressStatus", workflow.InProgressStatus),
+                     ("RequestType", workflow.RequestType), ("StartTransition", workflow.StartTransition),
+                     ("CloseTransition", workflow.CloseTransition), ("IssuePath", workflow.IssuePath) })
+            if (string.IsNullOrWhiteSpace(value)) errors.Add($"Informe {name} na seção Jira do arquivo settings.json.");
+        if (workflow.ClosedStatuses.Count == 0 || workflow.ClosedStatuses.Any(string.IsNullOrWhiteSpace))
+            errors.Add("Informe pelo menos um status em ClosedStatuses, sem itens vazios, na seção Jira do arquivo settings.json.");
+        if (!string.IsNullOrWhiteSpace(workflow.IssuePath) && (!workflow.IssuePath.StartsWith('/') || !workflow.IssuePath.Contains("{key}", StringComparison.Ordinal)))
+            errors.Add("IssuePath, na seção Jira do arquivo settings.json, deve começar com / e conter {key}.");
         return errors.Distinct().ToList();
     }
 

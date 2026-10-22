@@ -19,6 +19,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     public void SetDiagnostics(DiagnosticAttempt value) => diagnostics = value;
     private IPage Page => page ?? throw new InvalidOperationException("O navegador não está conectado.");
     private DomControls Ui => controls ?? throw new InvalidOperationException("O navegador não está conectado.");
+    private JiraWorkflow Workflow => settings.Jira;
     private static readonly Regex IssueKeyPattern = new(@"\b([A-Z][A-Z0-9]*-\d+)\b");
 
     public async Task ConnectAsync(AppSettings appSettings, Action<string> report, CancellationToken cancellationToken, string? initialIssueKey = null)
@@ -210,7 +211,16 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         throw new ReconciliationException($"O formulário de {floor.Name} foi enviado, mas o número do chamado não foi identificado. Confira o Jira e informe o número ao retomar pela aba Executar visita.");
     }
 
-    private string IssueUrl(string key) => $"{settings.JiraUrl.TrimEnd('/')}/jira/servicedesk/projects/{key.Split('-')[0]}/queues/issue/{key}";
+    private string IssueUrl(string key) => settings.JiraUrl.TrimEnd('/') +
+        Workflow.IssuePath.Trim().Replace("{project}", key.Split('-')[0], StringComparison.Ordinal).Replace("{key}", key, StringComparison.Ordinal);
+
+    // Os nomes vêm do settings.json editado à mão; espaços extras não fazem parte do nome no Jira.
+    private static bool SameText(string actual, string expected) =>
+        string.Equals(DomControls.Normalize(actual), DomControls.Normalize(expected), StringComparison.OrdinalIgnoreCase);
+    private bool IsClosedStatus(string status) => Workflow.ClosedStatuses.Any(closed => SameText(status, closed));
+    private Regex StatusNamePattern() => new($@"^({string.Join("|",
+        new[] { Workflow.WaitingStatus, Workflow.InProgressStatus }.Concat(Workflow.ClosedStatuses).Select(s => Regex.Escape(DomControls.Normalize(s))))})" +
+        @"(?:\s*-\s*(?:Change status|Alterar status))?$", RegexOptions.IgnoreCase);
 
     public async Task<IssueSnapshot> ReadIssueAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
@@ -230,7 +240,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             ("issue.sector", ["Setor/Local", "Setor"], floor.Floor.Sector), ("issue.room", ["Sala"], floor.Floor.Room),
             ("issue.fullName", ["Nome completo do usuário"], run.Profile.FullName),
             ("issue.extension", ["Ramal do solicitante"], run.Profile.Extension),
-            ("issue.requestType", ["Request Type", "Tipo de solicitação"], "Visita Preventiva")
+            ("issue.requestType", ["Request Type", "Tipo de solicitação"], Workflow.RequestType)
         })
         {
             var actual = await Ui.ValueAsync(field, labels);
@@ -244,8 +254,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         if (!string.Equals(DomControls.NormalizePersonName(reporter), DomControls.NormalizePersonName(run.Profile.ReporterName), StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"{key}: o solicitante configurado não foi encontrado na página.");
         var status = await StatusAsync(cancellationToken);
-        var closed = Regex.IsMatch(status, @"^(Fechado|Closed|Concluído|Concluido)$", RegexOptions.IgnoreCase);
-        var started = Regex.IsMatch(status, @"^Em andamento N2$", RegexOptions.IgnoreCase);
+        var closed = IsClosedStatus(status);
+        var started = SameText(status, Workflow.InProgressStatus);
         var assignee = await AssigneeAsync();
         // O Jira pode manter a ação "Assign to me" ao lado do responsável já salvo.
         var self = IsTechnician(assignee, run.TechnicianName);
@@ -291,7 +301,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         {
             button = Page.Locator("[data-testid='issue-field-status.ui.status-view.status-button.status-button']");
             if (await button.Filter(new() { Visible = true }).CountAsync() == 0)
-                button = Page.GetByRole(AriaRole.Button, new() { NameRegex = new(@"^(Aguardando N2|Em andamento N2|Fechado|Closed|Concluído|Concluido)(?:\s*-\s*(?:Change status|Alterar status))?$", RegexOptions.IgnoreCase) });
+                button = Page.GetByRole(AriaRole.Button, new() { NameRegex = StatusNamePattern() });
         }
         return button.Filter(new() { Visible = true });
     }
@@ -369,21 +379,22 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private static bool IsTechnician(string assignee, string technician) =>
         !string.IsNullOrWhiteSpace(technician) && string.Equals(DomControls.Normalize(assignee), DomControls.Normalize(technician), StringComparison.OrdinalIgnoreCase);
 
-    private async Task OpenTransitionAsync(string action, CancellationToken cancellationToken = default)
+    private async Task OpenTransitionAsync(string key, string action, CancellationToken cancellationToken = default)
     {
+        action = DomControls.Normalize(action);
         var direct = Page.GetByText(action, new() { Exact = true }).Filter(new() { Visible = true });
         cancellationToken.ThrowIfCancellationRequested();
         if (!await DomControls.IsUniqueVisibleAsync(direct))
             await (await StatusButtonAsync(cancellationToken)).ClickAsync();
-        await Ui.ClickAsync(action == "Iniciar Atendimento" ? "issue.start" : "issue.close", [action],
-            waitTimeout: TimeSpan.FromSeconds(settings.TimeoutSeconds), cancellationToken: cancellationToken);
+        await Ui.ClickAsync(key, [action], waitTimeout: TimeSpan.FromSeconds(settings.TimeoutSeconds), cancellationToken: cancellationToken);
     }
 
     public async Task StartAsync(VisitRun run, FloorRun floor)
     {
         var status = await StatusAsync();
-        if (!string.Equals(status, "Aguardando N2", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"{floor.IssueKey} está em “{status}”. O início de atendimento esperado é a partir de Aguardando N2.");
+        if (!SameText(status, Workflow.WaitingStatus))
+            throw new InvalidOperationException($"{floor.IssueKey} está em “{status}”. O início de atendimento esperado é a partir de {DomControls.Normalize(Workflow.WaitingStatus)}.");
+        var startTransition = DomControls.Normalize(Workflow.StartTransition);
         var pending = new HashSet<IRequest>();
         var sync = new object();
         var lastActivity = Stopwatch.GetTimestamp();
@@ -404,7 +415,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         Page.RequestFailed += Finished;
         try
         {
-            await OpenTransitionAsync("Iniciar Atendimento");
+            await OpenTransitionAsync("issue.start", startTransition);
             var begin = Stopwatch.GetTimestamp();
             lock (sync) { lastActivity = Stopwatch.GetTimestamp(); }
             var confirmationClicked = false;
@@ -412,8 +423,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             do
             {
                 var button = await StatusButtonLocatorAsync();
-                var started = await DomControls.IsUniqueVisibleAsync(button) &&
-                    string.Equals(DomControls.Normalize(await button.InnerTextAsync()), "Em andamento N2", StringComparison.OrdinalIgnoreCase);
+                var started = await DomControls.IsUniqueVisibleAsync(button) && SameText(await button.InnerTextAsync(), Workflow.InProgressStatus);
                 // O Jira pode aplicar a transicao diretamente e manter outros dialogos visiveis.
                 // Nao procurar uma segunda confirmacao se o status ja mudou, nem navegar
                 // enquanto a interface antecipa um resultado que ainda esta sendo salvo.
@@ -439,8 +449,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
                     if (settings.SelectorOverrides.TryGetValue("start.confirm", out var selector))
                         confirm = dialogs.Locator(selector).Filter(new() { Visible = true });
                     else
-                        confirm = dialogs.Filter(new() { Has = Page.GetByText("Iniciar Atendimento", new() { Exact = true }) })
-                            .GetByRole(AriaRole.Button, new() { NameRegex = new("^(Iniciar Atendimento|Confirm|Confirmar)$", RegexOptions.IgnoreCase) })
+                        confirm = dialogs.Filter(new() { Has = Page.GetByText(startTransition, new() { Exact = true }) })
+                            .GetByRole(AriaRole.Button, new() { NameRegex = new($"^({Regex.Escape(startTransition)}|Confirm|Confirmar)$", RegexOptions.IgnoreCase) })
                             .Filter(new() { Visible = true });
                     var count = await confirm.CountAsync();
                     if (count > 1)
@@ -478,9 +488,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     public async Task PrepareCloseAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!string.Equals(await StatusAsync(cancellationToken), "Em andamento N2", StringComparison.OrdinalIgnoreCase))
+        if (!SameText(await StatusAsync(cancellationToken), Workflow.InProgressStatus))
             throw new InvalidOperationException($"{floor.IssueKey}: confira o início do atendimento antes do fechamento.");
-        await OpenTransitionAsync("Transitar para Fechado", cancellationToken);
+        await OpenTransitionAsync("issue.close", DomControls.Normalize(Workflow.CloseTransition), cancellationToken);
         var dialog = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true });
         await dialog.First.WaitForAsync();
         dialog = await DomControls.UniqueAsync(dialog, "Fechamento");
@@ -523,7 +533,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var begin = Stopwatch.GetTimestamp();
         try
         {
-            await Ui.ClickAsync("close.submit", ["Transitar para Fechado"], dialog);
+            await Ui.ClickAsync("close.submit", [DomControls.Normalize(Workflow.CloseTransition)], dialog);
             lock (sync) { lastActivity = Stopwatch.GetTimestamp(); }
             diagnostics?.Event("close.wait_started", "Aguardando o término do envio do fechamento.");
             // O Jira pode exibir Fechado antes de salvar. Não navegar enquanto o modal
@@ -537,8 +547,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
                     var statusButton = await StatusButtonLocatorAsync();
                     if (await DomControls.IsUniqueVisibleAsync(statusButton) && await statusButton.IsEnabledAsync())
                     {
-                        var status = DomControls.Normalize(await statusButton.InnerTextAsync());
-                        if (new[] { "Fechado", "Closed", "Concluído", "Concluido" }.Contains(status, StringComparer.OrdinalIgnoreCase))
+                        if (IsClosedStatus(await statusButton.InnerTextAsync()))
                         {
                             lock (sync) { settled = pending.Count == 0 && Stopwatch.GetElapsedTime(lastActivity).TotalMilliseconds >= 500; }
                             if (!settled) continue;

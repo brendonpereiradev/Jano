@@ -29,7 +29,9 @@ var tests = new (string Name, Func<Task> Test)[]
     ("Cancelar após informar o número impede a vinculação e a retomada", CancelResumeToken)
     ,("Fechamento incerto só é repetido após conferência explícita", RetryUnconfirmedClose),
     ("Conferência recusada ou cancelada preserva o fechamento pendente", DeclineCloseRetry),
-    ("Status ou responsável divergente impede autorizar novo fechamento", UnsafeCloseRetry)
+    ("Status ou responsável divergente impede autorizar novo fechamento", UnsafeCloseRetry),
+    ("Fluxo do Jira exige nomes preenchidos e caminho com o número do chamado", ValidateJiraWorkflow),
+    ("Configurações antigas recebem o fluxo do Jira padrão", LegacyJiraWorkflow)
 }.Concat(DiagnosticTests.Cases).Concat(HistoryCleanupTests.Cases).ToArray();
 var failed = 0;
 foreach (var (name, test) in tests)
@@ -187,6 +189,34 @@ static Task ValidateProfile()
     Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("ClosingTeam")), "Equipe de fechamento vazia aceita.");
     Check(ProfileValidation.ValidateSettings(new AppSettings()).Count == 0, "Configuração padrão recusada.");
     return Task.CompletedTask;
+}
+static Task ValidateJiraWorkflow()
+{
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { WaitingStatus = " " } }).Any(e => e.Contains("WaitingStatus")), "Status vazio aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { CloseTransition = "" } }).Any(e => e.Contains("CloseTransition")), "Transição vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = [] } }).Any(e => e.Contains("ClosedStatuses")), "Lista de status de fechado vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = ["Fechado", " "] } }).Any(e => e.Contains("ClosedStatuses")), "Status de fechado vazio aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/SD-1" } }).Any(e => e.Contains("{key}")), "Caminho sem o número do chamado aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "browse/{key}" } }).Any(e => e.Contains("IssuePath")), "Caminho relativo sem barra aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/{key}", InProgressStatus = "Em atendimento" } }).Count == 0, "Fluxo personalizado válido recusado.");
+    return Task.CompletedTask;
+}
+static async Task LegacyJiraWorkflow()
+{
+    var store = new LocalStore(TestDirectory());
+    var legacy = JsonSerializer.Serialize(new AppSettings(), Serialization.Options);
+    using (var document = JsonDocument.Parse(legacy))
+        legacy = JsonSerializer.Serialize(document.RootElement.EnumerateObject().Where(p => p.Name != "Jira").ToDictionary(p => p.Name, p => p.Value));
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), legacy);
+    var loaded = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(loaded.SchemaVersion == 1 && JsonSerializer.Serialize(loaded.Jira) == JsonSerializer.Serialize(new JiraWorkflow()), "Arquivo sem a seção Jira não recebeu os padrões.");
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": null }""");
+    loaded = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(loaded.Jira.WaitingStatus == "Aguardando N2" && ProfileValidation.ValidateSettings(loaded).Count == 0, "Seção Jira nula não recebeu os padrões.");
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": { "ClosedStatuses": ["Resolvido"], "IssuePath": "/browse/{key}" } }""");
+    loaded = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(loaded.Jira.ClosedStatuses.SequenceEqual(["Resolvido"]) && loaded.Jira.IssuePath == "/browse/{key}" && loaded.Jira.StartTransition == "Iniciar Atendimento",
+        "Valores parciais da seção Jira foram misturados com a lista padrão ou perderam os demais padrões.");
 }
 static string TestDirectory() => Path.Combine(Path.GetTempPath(), "VistoraTests", Guid.NewGuid().ToString("N"));
 static async Task LocalPersistence()

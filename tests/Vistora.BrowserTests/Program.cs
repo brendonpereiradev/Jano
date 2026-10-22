@@ -34,7 +34,7 @@ if (args.Contains("--diagnose-saved-issue"))
     await using var browser = await playwright.Chromium.LaunchPersistentContextAsync(savedStore.BrowserDirectory,
         new() { Channel = "msedge", Headless = false, ChromiumSandbox = true });
     var page = browser.Pages[0];
-    await page.GotoAsync($"{savedRun.Settings.JiraUrl.TrimEnd('/')}/jira/servicedesk/projects/{key.Split('-')[0]}/queues/issue/{key}", new() { WaitUntil = WaitUntilState.DOMContentLoaded });
+    await page.GotoAsync(savedRun.Settings.JiraUrl.TrimEnd('/') + savedRun.Settings.Jira.IssuePath.Trim().Replace("{project}", key.Split('-')[0]).Replace("{key}", key), new() { WaitUntil = WaitUntilState.DOMContentLoaded });
     await page.GetByRole(AriaRole.Heading, new() { Name = savedRun.Profile.Title, Exact = true }).WaitForAsync();
     Console.WriteLine("Controles com texto de status: " + await page.Locator("button,[role=button]").EvaluateAllAsync<string>("els=>JSON.stringify(els.filter(e=>/Aguardando N2|Em andamento N2|Fechado/i.test(e.innerText||'')).map(e=>({text:e.innerText,html:e.outerHTML})))"));
     await Task.Delay(1000);
@@ -137,6 +137,7 @@ var startRequests = 0;
 var startDelayMs = 1500;
 var startMode = "unrelated";
 var rejectStart = false;
+var workflow = new JiraWorkflow();
 app.MapPost("/fixture/start", async (HttpContext ctx) =>
 {
     startRequests++;
@@ -163,7 +164,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
         return Results.Content("<html><body><label>Abrir esta requisição em nome de*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
-    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode), "text/html; charset=utf-8");
+    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, workflow), "text/html; charset=utf-8");
 });
 await app.StartAsync();
 var root = Path.Combine(Path.GetTempPath(), "VistoraBrowserTests", Guid.NewGuid().ToString("N"));
@@ -395,6 +396,36 @@ try
     startMode = "direct";
     Console.WriteLine("PASS: inicio rejeitado preserva pendencia; retomada aguarda confirmacao atrasada e habilitada sem duplicar chamado ou envio.");
 
+    // O Jira de outra unidade pode usar outros nomes no fluxo e outro endereço para o chamado.
+    workflow = new JiraWorkflow
+    {
+        WaitingStatus = "Aguardando Campo", InProgressStatus = "Em visita", ClosedStatuses = ["  Resolvido "], RequestType = "Visita Técnica",
+        StartTransition = "Começar visita", CloseTransition = "Resolver visita", IssuePath = "/browse/{key}"
+    };
+    wrongLatestResolution = false; transitionDelayMs = 0; startMode = "direct";
+    var workflowProbe = ProfileValidation.CreateRun(profile, new AppSettings());
+    workflowProbe.Settings = Serialization.Copy(run.Settings); workflowProbe.Settings.Jira = Serialization.Copy(workflow);
+    await engine.ExecuteAsync(workflowProbe, default);
+    Check(workflowProbe.State == RunState.Completed && workflowProbe.Floors.All(f => f.Stage == FloorStage.Closed), "Fluxo com outros nomes não concluiu: " + workflowProbe.Message);
+    await using (var workflowBrowser = new EdgeJiraAutomation(store))
+    {
+        await workflowBrowser.ConnectAsync(workflowProbe.Settings, _ => { }, default, workflowProbe.Floors[0].IssueKey);
+        foreach (var floor in workflowProbe.Floors)
+        {
+            var snapshot = await workflowBrowser.ReadIssueAsync(workflowProbe, floor, default);
+            Check(snapshot.Closed && snapshot.Status == "Resolvido" && snapshot.ResolutionMatches && snapshot.PublicCommentMatches && snapshot.TeamMatches,
+                "Fechamento com outros nomes de status não foi conferido pelo endereço configurado.");
+        }
+    }
+    var defaultNames = Serialization.Copy(workflowProbe.Settings); defaultNames.Jira = new(); defaultNames.TimeoutSeconds = 2;
+    await using (var defaultBrowser = new EdgeJiraAutomation(store))
+    {
+        try { await defaultBrowser.ConnectAsync(defaultNames, _ => { }, default, workflowProbe.Floors[0].IssueKey); throw new Exception("Status de outro fluxo reconhecido com os nomes padrão."); }
+        catch (InvalidOperationException ex) when (ex.Data["DiagnosticCode"]?.ToString() == "FORM_LOAD_TIMEOUT") { }
+    }
+    workflow = new JiraWorkflow();
+    Console.WriteLine("PASS: status, transições, tipo de solicitação e endereço do chamado vêm da seção Jira das configurações.");
+
     loginMode = true;
     var loginProbe = ProfileValidation.CreateRun(profile, new AppSettings()); loginProbe.Settings = Serialization.Copy(run.Settings);
     var loginDiagnostics = new DiagnosticAttempt(diagnostics, loginProbe, "access");
@@ -484,7 +515,8 @@ static void Check(bool condition, string message) { if (!condition) throw new Ex
 
 static class Fixture
 {
-    public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode) => """
+    public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode,
+        JiraWorkflow workflow) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
     <style>body{font:16px Segoe UI;padding:28px;background:#f6f8fb;color:#123743}main{max-width:850px;margin:auto;background:white;padding:24px}label{display:block;margin:14px 0 4px}input,textarea,select{font:inherit;padding:8px;width:90%}button{padding:10px;margin:8px}dl>div{display:flex;gap:24px;padding:8px;border-bottom:1px solid #ddd}dl>div>span:first-child{width:250px}dialog{width:650px}pre{white-space:pre-wrap}.options{background:#eef4f4}.options>div{padding:10px;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.combo-control{position:relative}.selected-overlay{position:absolute;inset:0;background:#eef4f4;z-index:2;padding:8px;width:90%}</style></head><body><main id="main"></main>
     <script>
@@ -494,6 +526,8 @@ static class Fixture
     const missingTransition = __MISSING_TRANSITION__;
     const ambiguousTransition = __AMBIGUOUS_TRANSITION__;
     const startMode = '__START_MODE__';
+    // Nomes do fluxo como o Jira exibe; um fluxo diferente do padrão também tira o data-testid do status.
+    const workflow = __WORKFLOW__;
     const main=document.getElementById('main'); const issues=JSON.parse(localStorage.getItem('issues')||'{}');
     const issueKey=location.pathname.match(/SD-\d+/)?.[0];
     const escape=s=>String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;');
@@ -536,11 +570,11 @@ static class Fixture
       }
       for(const id of ['title','description'])delayedValidation(id);
       document.getElementById('form').onsubmit=e=>{e.preventDefault();for(const id of ['title','description']){const input=document.getElementById(id);if(input.dataset.committed!==(input.value||input.innerText))throw Error('Jira ainda não processou '+id)}const data={};for(const id of ['reporter','title','extension','fullName','unit','floor','sector','room','phone','description']){const input=document.getElementById(id);data[id]=input.dataset.selected||input.value||input.innerText}
-      const key='SD-'+(1001+Object.keys(issues).length);issues[key]={...data,status:'Aguardando N2',assignee:'Unassigned',resolution:'',comment:'',team:'',commentCount:0};persist();location.href='/jira/servicedesk/projects/SD/queues/issue/'+key};
+      const key='SD-'+(1001+Object.keys(issues).length);issues[key]={...data,status:workflow.waiting,assignee:'Unassigned',resolution:'',comment:'',team:'',commentCount:0};persist();location.href='/jira/servicedesk/projects/SD/queues/issue/'+key};
     }else{
       const issue=issues[issueKey];if(!issue){main.innerHTML='<h1>Chamado não encontrado</h1>'}else{
-      main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
-      ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type','Visita Preventiva')}${row('Reporter','Pessoa Teste')}
+      main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')||workflow.plainStatus?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
+      ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
       ${row('Equipe',issue.team)}${issueKey.endsWith('1')?'':row('Resolução do chamado',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
@@ -565,14 +599,14 @@ static class Fixture
         menu.innerHTML='<p>-</p><p>View workflow</p>';
         setTimeout(()=>{
         if(missingTransition)return;
-        if(issue.status==='Aguardando N2'){menu.innerHTML='<button id="start" disabled>Iniciar Atendimento</button>';if(ambiguousTransition){menu.innerHTML+='<button>Iniciar Atendimento</button>';return}const start=document.getElementById('start');if(issueKey.endsWith('2'))start.setAttribute('role','menuitem');setTimeout(()=>start.disabled=false,400);start.onclick=()=>{
+        if(issue.status===workflow.waiting){menu.innerHTML=`<button id="start" disabled>${escape(workflow.start)}</button>`;if(ambiguousTransition){menu.innerHTML+=`<button>${escape(workflow.start)}</button>`;return}const start=document.getElementById('start');if(issueKey.endsWith('2'))start.setAttribute('role','menuitem');setTimeout(()=>start.disabled=false,400);start.onclick=()=>{
           menu.innerHTML='';
           const submitStart=async()=>{
-            const status=document.getElementById('status');status.textContent='Em andamento N2';status.disabled=true;
+            const status=document.getElementById('status');status.textContent=workflow.inProgress;status.disabled=true;
             const response=await fetch('/fixture/start',{method:'POST'});
             status.disabled=false;
             if(!response.ok){status.textContent=issue.status;return}
-            issue.status='Em andamento N2';persist();location.reload();
+            issue.status=workflow.inProgress;persist();location.reload();
           };
           if(startMode==='unrelated'&&issueKey.endsWith('1')){
             const unrelated=document.createElement('div');unrelated.setAttribute('role','dialog');unrelated.textContent='Atualizando chamado';document.body.appendChild(unrelated);
@@ -581,20 +615,20 @@ static class Fixture
             // O painel do chamado tambem pode ser um dialogo. A confirmacao chega depois.
             main.setAttribute('role','dialog');
             setTimeout(()=>{
-              const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML='<h2>Iniciar Atendimento</h2><button id="start-confirm" disabled>Confirmar</button>';document.body.appendChild(dialog);dialog.showModal();
+              const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.start)}</h2><button id="start-confirm" disabled>Confirmar</button>`;document.body.appendChild(dialog);dialog.showModal();
               const confirm=document.getElementById('start-confirm');setTimeout(()=>confirm.disabled=false,500);
               confirm.onclick=()=>{confirm.disabled=true;dialog.close();submitStart()};
             },900);
           }else submitStart();
         }}
-        else if(issue.status==='Em andamento N2'){menu.innerHTML='<button id="close">Transitar para Fechado</button>';document.getElementById('close').onclick=()=>{
-          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>Transitar para Fechado</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Field Services</option></select><button id="confirm">Transitar para Fechado</button>`;document.body.appendChild(dialog);dialog.showModal();
+        else if(issue.status===workflow.inProgress){menu.innerHTML=`<button id="close">${escape(workflow.close)}</button>`;document.getElementById('close').onclick=()=>{
+          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Field Services</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
           document.getElementById('reply').onclick=()=>dialog.dataset.public='true';
           for(const id of ['resolution','public'])delayedValidation(id);
           document.getElementById('confirm').onclick=async()=>{for(const id of ['resolution','public']){const input=document.getElementById(id);if(input.dataset.committed!==input.value)throw Error('Jira ainda não processou '+id)}if(dialog.dataset.public!=='true')throw Error('Comentário não é público');const resolution=document.getElementById('resolution').value,comment=document.getElementById('public').value,team=document.getElementById('team').value;
           // O status muda antes da resposta do servidor. Navegar agora perde o fechamento.
-          document.getElementById('status').textContent='Fechado';if(issueKey.endsWith('1'))dialog.close();
-          const response=await fetch('/fixture/close',{method:'POST'});if(!response.ok){document.getElementById('status').textContent=issue.status;if(!dialog.open)dialog.showModal();return}issue.resolution=resolution;issue.comment=comment;issue.team=team;issue.commentCount++;issue.status='Fechado';persist();location.reload()}
+          document.getElementById('status').textContent=workflow.closed;if(issueKey.endsWith('1'))dialog.close();
+          const response=await fetch('/fixture/close',{method:'POST'});if(!response.ok){document.getElementById('status').textContent=issue.status;if(!dialog.open)dialog.showModal();return}issue.resolution=resolution;issue.comment=comment;issue.team=team;issue.commentCount++;issue.status=workflow.closed;persist();location.reload()}
         }};
         },transitionDelayMs);
       }
@@ -603,5 +637,11 @@ static class Fixture
     </script></body></html>
     """.Replace("__HIDE_PUBLIC__", hidePublic ? "true" : "false").Replace("__WRONG_LATEST_RESOLUTION__", wrongLatestResolution ? "true" : "false")
         .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("__START_MODE__", startMode)
-        .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false");
+        .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false")
+        .Replace("__WORKFLOW__", JsonSerializer.Serialize(new
+        {
+            waiting = workflow.WaitingStatus.Trim(), inProgress = workflow.InProgressStatus.Trim(), closed = workflow.ClosedStatuses[0].Trim(),
+            requestType = workflow.RequestType, start = workflow.StartTransition, close = workflow.CloseTransition,
+            plainStatus = JsonSerializer.Serialize(workflow) != JsonSerializer.Serialize(new JiraWorkflow())
+        }));
 }
