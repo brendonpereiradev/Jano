@@ -329,7 +329,8 @@ public partial class MainWindow : Window
         }
         if (ActiveProfile is null) throw new InvalidOperationException("Escolha um perfil ou uma visita pendente para continuar.");
         var errors = ProfileValidation.Validate(ActiveProfile, settings);
-        if (errors.Count > 0) throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
+        // Os campos a corrigir ficam no painel de status, um por linha, em vez de numa janela.
+        if (errors.Count > 0) { ShowStatus(string.Join(Environment.NewLine, errors), (Brush)FindResource("Red")); return; }
         await store.SaveProfilesAsync(profiles);
         var run = ProfileValidation.CreateRun(ActiveProfile, settings);
         await store.SaveRunAsync(run);
@@ -541,10 +542,16 @@ public partial class MainWindow : Window
     {
         try { await operation(); }
         catch (OperationCanceledException) { diagnostics.AppEvent("ui.operation_cancelled", "Operação interrompida."); }
+        // InvalidOperationException traz uma regra que o operador pode corrigir; as demais são falhas.
+        catch (InvalidOperationException exception)
+        {
+            diagnostics.AppEvent("ui.operation_refused", "Uma operação da interface foi recusada.", DiagnosticLevel.Warning, exception);
+            MessageBox.Show(this, exception.Message, "Vistora", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
         catch (Exception exception)
         {
             diagnostics.AppEvent("ui.operation_failed", "Uma operação da interface falhou.", DiagnosticLevel.Error, exception);
-            MessageBox.Show(this, exception.Message, "Vistora", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, exception.Message, "Vistora", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
     private async void WindowClosing(object? sender, CancelEventArgs e)

@@ -58,13 +58,36 @@ public partial class ProfileWindow : Window
     private void Save(object sender, RoutedEventArgs e)
     {
         FloorsGrid.CommitEdit(DataGridEditingUnit.Cell, true); FloorsGrid.CommitEdit(DataGridEditingUnit.Row, true);
-        if (string.IsNullOrWhiteSpace(Profile.Name)) { MessageBox.Show(this, "Preencha o nome do perfil.", "Vistora"); return; }
-        if (floors.Any(f => string.IsNullOrWhiteSpace(f.Name)) || floors.Select(f => f.Name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() != floors.Count)
-        { MessageBox.Show(this, "Use um nome diferente e preenchido para cada pavimento.", "Vistora"); return; }
+        ClearValidation(this, e);
+        if (string.IsNullOrWhiteSpace(Profile.Name))
+        {
+            ShowInvalid(NameBox, 0, "Preencha o nome do perfil.");
+            NameBox.Focus(); return;
+        }
+        var invalid = floors.FirstOrDefault(f => string.IsNullOrWhiteSpace(f.Name) ||
+            floors.Count(other => string.Equals(other.Name.Trim(), f.Name.Trim(), StringComparison.OrdinalIgnoreCase)) > 1);
+        if (invalid is not null)
+        {
+            ShowInvalid(FloorsGrid, 1, "Use um nome diferente e preenchido para cada pavimento.");
+            FloorsGrid.SelectedItem = invalid; FloorsGrid.ScrollIntoView(invalid); return;
+        }
         Profile.Floors = floors.ToList();
         Profile.Attachments = attachments.ToList();
         Profile.Name = Profile.Name.Trim(); Profile.ReporterEmail = Profile.ReporterEmail.Trim(); Profile.Unit = Profile.Unit.Trim();
         DialogResult = true;
+    }
+    // O campo a corrigir fica marcado em vermelho na aba em que está, com o motivo ao lado dos botões.
+    private void ShowInvalid(Control field, int tab, string message)
+    {
+        EditorTabs.SelectedIndex = tab;
+        field.BorderBrush = (System.Windows.Media.Brush)FindResource("Red");
+        ValidationMessage.Text = message;
+    }
+    private void ClearValidation(object sender, EventArgs e)
+    {
+        if (ValidationMessage is null || ValidationMessage.Text.Length == 0) return;
+        ValidationMessage.Text = "";
+        NameBox.ClearValue(BorderBrushProperty); FloorsGrid.ClearValue(BorderBrushProperty);
     }
     private void Cancel(object sender, RoutedEventArgs e) => DialogResult = false;
 }

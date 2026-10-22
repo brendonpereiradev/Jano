@@ -40,7 +40,9 @@ internal static class Program
             ("Falha parcial de limpeza mantém registros restantes na tela", PartialHistoryCleanup),
             ("Painel de status mostra a mensagem e a cor do estado da visita", RunStatusPanel),
             ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit),
-            ("Histórico mostra o motivo da visita selecionada com a cor do estado", HistoryMessage)
+            ("Histórico mostra o motivo da visita selecionada com a cor do estado", HistoryMessage),
+            ("Perfil incompleto mostra os erros no painel, sem abrir janela", IncompleteProfile),
+            ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -398,6 +400,44 @@ internal static class Program
         Check(message.Text == completed.Message && message.Foreground == Application.Current.Resources["Teal"], "A mensagem não acompanhou a visita selecionada.");
         Control<DataGrid>(window, "HistoryGrid").SelectedItem = null;
         Check(message.Visibility == Visibility.Collapsed, "A mensagem ficou visível sem visita selecionada.");
+    }
+
+    private static void IncompleteProfile()
+    {
+        var profile = Profile(); profile.ReporterName = ""; profile.Extension = " ";
+        using var fixture = new Fixture([profile], [], allowCleanup: true); var window = fixture.Window;
+        // Uma janela aqui travaria o teste; a validação precisa terminar sem interação.
+        Invoke(window, "Execute", null, null);
+        var status = Control<TextBlock>(window, "RunStatus");
+        var lines = status.Text.Split(Environment.NewLine);
+        Check(status.Visibility == Visibility.Visible && status.Foreground == Application.Current.Resources["Red"] &&
+            lines.Contains("Preencha Solicitante.") && lines.Contains("Preencha Ramal."), "Os erros de validação não apareceram no painel, um por linha.");
+        Check(Control<DataGrid>(window, "HistoryGrid").Items.Count == 0 && Control<Button>(window, "ExecuteButton").IsEnabled &&
+            !Directory.EnumerateFiles(Path.Combine(Store(window).Root, "runs")).Any(), "Um perfil incompleto criou uma visita ou bloqueou a tela.");
+        Screenshot(window, "perfil-incompleto");
+    }
+
+    private static void ProfileEditorValidation()
+    {
+        var profile = Profile(); profile.Floors.Add(new Floor { Name = "Térreo" }); profile.Floors.Add(new Floor { Name = " pavimento 1 " });
+        var editor = new ProfileWindow(profile) { ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
+        try
+        {
+            editor.Show(); editor.UpdateLayout();
+            void Save() => typeof(ProfileWindow).GetMethod("Save", PrivateInstance)!.Invoke(editor, [null, null]);
+            var message = (TextBlock)editor.FindName("ValidationMessage"); var tabs = (TabControl)editor.FindName("EditorTabs");
+            var name = (TextBox)editor.FindName("NameBox"); var grid = (DataGrid)editor.FindName("FloorsGrid");
+            var red = Application.Current.Resources["Red"];
+            name.Text = " "; tabs.SelectedIndex = 1; Save();
+            Check(tabs.SelectedIndex == 0 && name.BorderBrush == red && message.Text.Contains("nome do perfil"), "O nome vazio não foi marcado no editor.");
+            Screenshot(editor, "perfil-invalido");
+            name.Text = "Unidade A";
+            Check(message.Text.Length == 0 && name.BorderBrush != red, "A marcação continuou depois da correção.");
+            Save();
+            Check(tabs.SelectedIndex == 1 && grid.BorderBrush == red && grid.SelectedItem == editor.Profile.Floors[0] && message.Text.Contains("pavimento"),
+                "O pavimento repetido não foi marcado no editor.");
+        }
+        finally { editor.Close(); }
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
