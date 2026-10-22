@@ -34,7 +34,13 @@ public sealed partial class DiagnosticService
 {
     private bool clearingVisits;
 
-    public async Task ClearVisitsAsync()
+    public Task ClearVisitsAsync() => ClearAsync(null);
+
+    // Apaga logs e capturas de uma só visita; as demais visitas e os eventos gerais ficam.
+    public Task ClearVisitAsync(string runId) =>
+        ClearAsync(Guid.TryParseExact(runId, "N", out _) ? runId : throw new ArgumentException("Identificador inválido."));
+
+    private async Task ClearAsync(string? runId)
     {
         lock (enqueueGate)
         {
@@ -48,15 +54,15 @@ public sealed partial class DiagnosticService
             // A command in the writer queue runs after all earlier writes, under filesGate.
             // FlushAsync is intentionally insufficient here: it tolerates timeouts and failures.
             var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            await queue.Writer.WriteAsync(new(Completion: done, Operation: ClearVisitFilesAsync));
+            await queue.Writer.WriteAsync(new(Completion: done, Operation: () => ClearVisitFilesAsync(runId)));
             await done.Task;
         }
         finally { lock (enqueueGate) clearingVisits = false; }
     }
 
-    private async Task ClearVisitFilesAsync()
+    private async Task ClearVisitFilesAsync(string? runId)
     {
-        var directory = Path.Combine(Root, "diagnostics");
+        var directory = runId is null ? Path.Combine(Root, "diagnostics") : Path.Combine(Root, "diagnostics", runId);
         var logs = Path.Combine(Root, "logs");
         VisitDataPaths.CheckTree(Root, directory);
         VisitDataPaths.Check(Root, logs);
@@ -72,8 +78,9 @@ public sealed partial class DiagnosticService
                     if (string.IsNullOrWhiteSpace(line)) { kept.Add(line); continue; }
                     using var json = JsonDocument.Parse(line);
                     var entry = json.RootElement;
-                    var hasRun = entry.TryGetProperty("runId", out var runId) || entry.TryGetProperty("RunId", out runId);
-                    if (hasRun && runId.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(runId.GetString()))
+                    var hasRun = entry.TryGetProperty("runId", out var value) || entry.TryGetProperty("RunId", out value);
+                    if (hasRun && value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(value.GetString()) &&
+                        (runId is null || value.GetString() == runId))
                         changed = true;
                     else kept.Add(line);
                 }
@@ -87,8 +94,10 @@ public sealed partial class DiagnosticService
         if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
         lock (enqueueGate)
         {
-            foreach (var id in summaries.Keys) sequences.Remove(id);
-            summaries.Clear(); environments.Clear();
+            foreach (var id in summaries.Where(x => runId is null || x.Value.RunId == runId).Select(x => x.Key).ToList())
+            {
+                sequences.Remove(id); summaries.TryRemove(id, out _); environments.TryRemove(id, out _);
+            }
         }
         storageLimited = DiagnosticBytes() > options.MaxStorageMegabytes * 1024L * 1024;
     }

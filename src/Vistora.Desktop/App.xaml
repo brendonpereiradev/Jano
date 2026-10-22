@@ -29,7 +29,7 @@
     <Style TargetType="{x:Type local:MainWindow}" BasedOn="{StaticResource WindowIcon}"/>
     <Style TargetType="{x:Type local:ProfileWindow}" BasedOn="{StaticResource WindowIcon}"/>
     <Style TargetType="{x:Type local:IssueKeyWindow}" BasedOn="{StaticResource WindowIcon}"/>
-    <Style TargetType="{x:Type local:HistoryClearWindow}" BasedOn="{StaticResource WindowIcon}"/>
+    <Style TargetType="{x:Type local:DangerConfirmWindow}" BasedOn="{StaticResource WindowIcon}"/>
 
     <Style TargetType="TextBox">
       <Setter Property="Padding" Value="10,8"/><Setter Property="Margin" Value="0,4,0,12"/><Setter Property="BorderBrush" Value="{StaticResource Field}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Background" Value="White"/><Setter Property="VerticalContentAlignment" Value="Center"/>

@@ -222,6 +222,7 @@ public partial class MainWindow : Window
     {
         var profileHasPending = ActiveProfile is not null && runs.Any(r => r.Profile.Id == ActiveProfile.Id && r.State != RunState.Completed);
         ExecuteButton.IsEnabled = !busy && !cleaningHistory && (SelectedPendingRun is not null || (ActiveProfile is not null && !profileHasPending));
+        DiscardButton.Visibility = SelectedPendingRun is { } run && VisitRunSelection.CanDiscard(run) ? Visibility.Visible : Visibility.Collapsed;
     }
     private void UpdateSelectionSummary() => SelectionSummary.Text = SelectedPendingRun is { } run
         ? $"Pavimentos da visita: {run.Floors.Count}"
@@ -433,7 +434,38 @@ public partial class MainWindow : Window
         finally { exportingLog = false; UpdateInteraction(); }
     }
     private async void ClearHistory(object sender, RoutedEventArgs e) => await SafeAsync(() => ClearHistoryWithConfirmationAsync(message =>
-        new HistoryClearWindow(message) { Owner = this }.ShowDialog() == true));
+        new DangerConfirmWindow("Limpar histórico e pendências", message, "Limpar tudo") { Owner = this }.ShowDialog() == true));
+    private async void DiscardVisit(object sender, RoutedEventArgs e) => await SafeAsync(() => DiscardWithConfirmationAsync(message =>
+        new DangerConfirmWindow("Descartar visita", message, "Descartar visita") { Owner = this }.ShowDialog() == true));
+
+    // Só visitas sem chamado no Jira podem ser descartadas; as demais exigem retomada ou conferência.
+    private async Task DiscardWithConfirmationAsync(Func<string, bool> confirm)
+    {
+        if (loading || busy || cleaningHistory || exportingLog || preview || SelectedPendingRun is not { } run || !VisitRunSelection.CanDiscard(run)) return;
+        var message = $"Descartar a visita de {run.DateLabel} do perfil “{run.ProfileName}”?\n\nNenhum chamado foi aberto no Jira para esta visita. O registro, os logs e as capturas dela serão apagados deste computador, e o perfil poderá iniciar uma nova visita.\n\nEsta ação não pode ser desfeita.";
+        if (!confirm(message)) return;
+        cleaningHistory = true; UpdateInteraction();
+        ShowStatus("Descartando a visita…", (Brush)FindResource("Muted"));
+        Exception? failure = null;
+        try { activeTask = store.DeleteRunAsync(run.Id); await activeTask; }
+        catch (Exception ex)
+        {
+            failure = ex;
+            diagnostics.AppEvent("run.discard_failed", "A visita pendente não pôde ser descartada.", DiagnosticLevel.Error, ex, run.Id);
+        }
+        finally
+        {
+            if (!File.Exists(Path.Combine(store.Root, "runs", run.Id + ".json"))) runs.Remove(run);
+            activeTask = null; cleaningHistory = false;
+            RefreshHistory(); RefreshPendingVisits(preferProfile: true); UpdateInteraction();
+        }
+        if (failure is null)
+        {
+            diagnostics.AppEvent("run.discarded", "Visita pendente sem chamados descartada.");
+            ShowStatus("Visita descartada. O perfil já pode iniciar uma nova visita.", (Brush)FindResource("Teal"));
+        }
+        else ShowStatus("Não foi possível descartar a visita. " + failure.Message, (Brush)FindResource("Red"));
+    }
 
     private async Task ClearHistoryWithConfirmationAsync(Func<string, bool> confirm)
     {

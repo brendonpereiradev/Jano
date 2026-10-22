@@ -10,7 +10,9 @@ internal static class HistoryCleanupTests
         ("Limpeza recusa uma tentativa em andamento e permite nova tentativa após concluir", ActiveAttempt),
         ("Arquivo de visita bloqueado informa falha parcial e permite repetir a limpeza", LockedRun),
         ("Captura bloqueada preserva registros e permite repetir a limpeza", LockedCapture),
-        ("Log compartilhado bloqueado preserva registros e eventos gerais", LockedLog)
+        ("Log compartilhado bloqueado preserva registros e eventos gerais", LockedLog),
+        ("Descartar apaga somente a visita escolhida, com seus logs e capturas", DiscardOne),
+        ("Descartar recusa visitas com chamado, ação pendente ou concluídas", DiscardRefused)
     ];
     private static void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
     private static string NewRoot() => Path.Combine(Path.GetTempPath(), "VistoraCleanupTests", Guid.NewGuid().ToString("N"));
@@ -143,5 +145,49 @@ internal static class HistoryCleanupTests
             Check((await store.LoadRunsAsync()).Count == 1 && File.ReadAllText(path).Contains("cleanup.general"), "Falha no log apagou dados preservados.");
         }
         await store.ClearHistoryAsync(); Check((await store.LoadRunsAsync()).Count == 0, "A falha de log não liberou a limpeza.");
+    }
+
+    private static async Task DiscardOne()
+    {
+        await using var diagnostics = new DiagnosticService(NewRoot()); var store = new LocalStore(diagnostics.Root, diagnostics);
+        var discarded = Run(); var kept = Run(); kept.Floors[0].IssueKey = "SD-1001";
+        foreach (var run in new[] { discarded, kept })
+        {
+            await store.SaveRunAsync(run); await store.SaveRunAsync(run);
+            var attempt = new DiagnosticAttempt(diagnostics, run); attempt.Event("discard.visit", "Evento da visita."); await attempt.FinishAsync(false);
+            var artifacts = diagnostics.ArtifactDirectory(run.Id, attempt.Id);
+            Directory.CreateDirectory(artifacts); await File.WriteAllTextAsync(Path.Combine(artifacts, "falha.png"), "captura");
+            diagnostics.AppEvent("discard.related", "Evento compartilhado.", runId: run.Id);
+        }
+        diagnostics.AppEvent("discard.general", "Evento geral."); await diagnostics.FlushAsync();
+        await store.DeleteRunAsync(discarded.Id); await diagnostics.FlushAsync();
+        Check((await store.LoadRunsAsync()).Single().Id == kept.Id, "O descarte não removeu somente a visita escolhida.");
+        Check(!Directory.EnumerateFiles(Path.Combine(store.Root, "runs")).Any(path => path.Contains(discarded.Id)), "Uma cópia da visita descartada permaneceu.");
+        Check(!Directory.Exists(store.DiagnosticsDirectory(discarded.Id)) && await diagnostics.ReadOverviewAsync(discarded.Id) is null, "Capturas ou resumo da visita descartada permaneceram.");
+        Check(Directory.Exists(store.DiagnosticsDirectory(kept.Id)) && await diagnostics.ReadOverviewAsync(kept.Id) is not null, "O descarte apagou o diagnóstico de outra visita.");
+        var logs = string.Concat(Directory.EnumerateFiles(Path.Combine(store.Root, "logs"), "*.jsonl").Select(File.ReadAllText));
+        Check(!logs.Contains(discarded.Id) && logs.Contains(kept.Id) && logs.Contains("discard.general"), "Os logs compartilhados não foram filtrados pela visita.");
+    }
+
+    private static async Task DiscardRefused()
+    {
+        await using var diagnostics = new DiagnosticService(NewRoot()); var store = new LocalStore(diagnostics.Root, diagnostics);
+        var issue = Run(); issue.Floors[0].IssueKey = "SD-1001";
+        var creating = Run(); creating.Floors[0].PendingAction = PendingAction.Create;
+        var completed = Run(); completed.State = RunState.Completed;
+        foreach (var run in new[] { issue, creating, completed })
+        {
+            Check(!VisitRunSelection.CanDiscard(run), "A regra permitiu descartar uma visita que pode ter chamado.");
+            await store.SaveRunAsync(run);
+            try { await store.DeleteRunAsync(run.Id); throw new Exception("O descarte aceitou uma visita protegida."); }
+            catch (InvalidOperationException) { }
+        }
+        Check((await store.LoadRunsAsync()).Count == 3, "A recusa apagou uma visita.");
+        // A cópia da tela pode estar desatualizada; vale o que está salvo.
+        var stale = Run(); await store.SaveRunAsync(stale);
+        var saved = Serialization.Copy(stale); saved.Floors[0].IssueKey = "SD-1002"; await store.SaveRunAsync(saved);
+        Check(VisitRunSelection.CanDiscard(stale), "A visita sem chamado não pôde ser descartada.");
+        try { await store.DeleteRunAsync(stale.Id); throw new Exception("O descarte usou a cópia desatualizada."); }
+        catch (InvalidOperationException) { }
     }
 }

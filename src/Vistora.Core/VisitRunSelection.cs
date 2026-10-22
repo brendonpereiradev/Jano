@@ -26,6 +26,10 @@ public static class VisitRunSelection
         return HasProgress(selected) ? selected : PendingForProfile(runs, selected.Profile.Id) ?? selected;
     }
 
+    // Sem chamado nem ação em andamento, nada ficou no Jira e a visita pode ser apagada sem conferência.
+    public static bool CanDiscard(VisitRun run) => run.State != RunState.Completed &&
+        run.Floors.All(f => f.IssueKey is null && f.PendingAction == PendingAction.None);
+
     private static bool HasProgress(VisitRun run) => run.Floors.Any(f =>
         f.IssueKey is not null || f.PendingAction != PendingAction.None || f.Stage != FloorStage.Pending);
 }

@@ -83,6 +83,7 @@
             <StackPanel Grid.Row="2" Orientation="Horizontal">
               <StackPanel x:Name="RunActions" Orientation="Horizontal">
                 <Button x:Name="ExecuteButton" Style="{StaticResource Primary}" Content="Executar visita preventiva" Click="Execute"/>
+                <Button x:Name="DiscardButton" Content="Descartar visita" Click="DiscardVisit" Foreground="{StaticResource Red}" Visibility="Collapsed"/>
                 <Button x:Name="ConnectButton" Content="Verificar acesso ao Edge" Click="CheckAccess"/>
               </StackPanel>
               <Button x:Name="StopButton" Content="Parar execução" Visibility="Collapsed" IsEnabled="False" Click="Stop"/>

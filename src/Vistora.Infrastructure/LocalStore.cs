@@ -48,6 +48,26 @@ public sealed class LocalStore : IRunStore
         finally { gate.Release(); }
     }
 
+    public async Task DeleteRunAsync(string runId)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            var path = Path.Combine(Root, "runs", SafeId(runId) + ".json");
+            VisitDataPaths.Check(Root, path);
+            // A regra é conferida no arquivo salvo, não na cópia da tela, que pode estar desatualizada.
+            var run = await ReadAsync(Path.Combine("runs", runId + ".json"), () => (VisitRun?)null)
+                ?? throw new InvalidOperationException("Esta visita não está mais salva neste computador.");
+            if (!VisitRunSelection.CanDiscard(run))
+                throw new InvalidOperationException("Esta visita já tem chamados no Jira. Retome a visita para conferir os chamados.");
+            var paths = new[] { path + ".tmp", path + ".bak", path };
+            foreach (var file in paths) VisitDataPaths.Check(Root, file);
+            if (Diagnostics is not null) await Diagnostics.ClearVisitAsync(runId);
+            foreach (var file in paths) File.Delete(file);
+        }
+        finally { gate.Release(); }
+    }
+
     private async Task<T> ReadAsync<T>(string relative, Func<T> create)
     {
         var path = Path.Combine(Root, relative);

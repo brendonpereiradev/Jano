@@ -38,7 +38,8 @@ internal static class Program
             ("Limpeza esvazia histórico e pendências e restaura o perfil", ClearHistory),
             ("Limpeza respeita carregamento, execução, exportação e prévia", CleanupGuards),
             ("Falha parcial de limpeza mantém registros restantes na tela", PartialHistoryCleanup),
-            ("Painel de status mostra a mensagem e a cor do estado da visita", RunStatusPanel)
+            ("Painel de status mostra a mensagem e a cor do estado da visita", RunStatusPanel),
+            ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -262,7 +263,7 @@ internal static class Program
         string? message = null; Clean(window, text => { message = text; return false; });
         Check(message is not null && message.Contains("1 visita(s)") && message.Contains("1 pendente(s)") && message.Contains("logs e capturas") && message.Contains("Jira"), "Confirmação omitiu o alcance da exclusão.");
         Check(before.SequenceEqual(File.ReadAllBytes(Path.Combine(store.Root, "runs", run.Id + ".json"))) && SelectedRun(window) == run, "Cancelar alterou os dados.");
-        var dialog = new HistoryClearWindow(message!); var buttons = Descendants(dialog).OfType<Button>().ToArray();
+        var dialog = new DangerConfirmWindow("Limpar histórico e pendências", message!, "Limpar tudo"); var buttons = Descendants(dialog).OfType<Button>().ToArray();
         Check(buttons.Single(b => b.IsDefault).Content.Equals("Cancelar") && buttons.Single(b => b.IsCancel).Content.Equals("Cancelar"), "Confirmação não usa Cancelar por padrão.");
         Screenshot(dialog, "confirmar-limpeza");
         dialog.Close();
@@ -337,6 +338,35 @@ internal static class Program
         Invoke(window, "SetBusy", false);
         Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
         Check(SelectedRun(window) is null && status.Visibility == Visibility.Collapsed, "O status de outra visita continuou visível.");
+    }
+
+    private static void Discard(MainWindow window, Func<string, bool> confirm) => Await((Task)Invoke(window, "DiscardWithConfirmationAsync", confirm)!);
+    private static void DiscardVisit()
+    {
+        var profile = Profile(); var other = Profile("Unidade B");
+        var empty = ProfileValidation.CreateRun(profile, new AppSettings()); empty.State = RunState.Failed; empty.Message = "O formulário não carregou.";
+        var withIssue = Run(other);
+        using var fixture = new Fixture([profile, other], [empty, withIssue], allowCleanup: true); var window = fixture.Window; var store = Store(window);
+        Await(store.SaveRunAsync(empty)); Await(store.SaveRunAsync(withIssue));
+        var discard = Control<Button>(window, "DiscardButton");
+        Check(SelectedRun(window) == empty && discard.Visibility == Visibility.Visible, "A visita sem chamados não ofereceu o descarte.");
+        Screenshot(window, "descartar-visita");
+        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, withIssue);
+        Check(discard.Visibility == Visibility.Collapsed, "A visita com chamado ofereceu o descarte.");
+        Discard(window, _ => throw new Exception("Pediu confirmação para uma visita com chamado."));
+        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, empty);
+        Invoke(window, "SetBusy", true);
+        Check(!discard.IsEnabled, "O descarte ficou disponível durante a execução.");
+        Invoke(window, "SetBusy", false);
+        string? message = null; Discard(window, text => { message = text; return false; });
+        Check(message is not null && message.Contains("Nenhum chamado") && message.Contains("não pode ser desfeita") && SelectedRun(window) == empty &&
+            File.Exists(Path.Combine(store.Root, "runs", empty.Id + ".json")), "Cancelar o descarte alterou a visita ou a confirmação omitiu o alcance.");
+        Discard(window, _ => true);
+        Check(!File.Exists(Path.Combine(store.Root, "runs", empty.Id + ".json")) && File.Exists(Path.Combine(store.Root, "runs", withIssue.Id + ".json")), "O descarte não apagou somente a visita escolhida.");
+        Check(Control<DataGrid>(window, "HistoryGrid").Items.Cast<VisitRun>().Single() == withIssue, "O histórico manteve a visita descartada.");
+        Check(SelectedRun(window) is null && Control<ComboBox>(window, "ProfilePicker").SelectedItem == profile && discard.Visibility == Visibility.Collapsed &&
+            Control<Button>(window, "ExecuteButton").IsEnabled && Control<Button>(window, "ExecuteButton").Content.Equals("Executar visita preventiva"), "O perfil não voltou a permitir uma nova visita.");
+        Check(Control<TextBlock>(window, "RunStatus").Text.Contains("descartada"), "O descarte não foi informado no painel de status.");
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
