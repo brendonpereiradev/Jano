@@ -79,10 +79,14 @@ internal static class Program
         Check((style & controls) == controls && window.Icon is not null, "Barra de título, ícone ou controles de janela ausentes.");
         var original = bounds;
         window.Left += 8; window.Top += 8;
-        window.Width -= 12;
+        // Em telas menores que o tamanho mínimo da janela (como a do executor da CI), a abertura já usa o mínimo.
+        var shrink = Math.Min(12, window.Width - window.MinWidth);
+        if (shrink <= 0) Console.WriteLine($"Aviso: a janela abriu no tamanho mínimo ({window.Width:0}x{window.Height:0}); redução não conferida nesta tela.");
+        window.Width -= Math.Max(0, shrink);
         window.UpdateLayout();
-        Check(GetWindowRect(handle, out bounds) && bounds.Left > original.Left && bounds.Top > original.Top &&
-            bounds.Right - bounds.Left < original.Right - original.Left, "A janela não permite movimentação e redução de tamanho.");
+        Check(GetWindowRect(handle, out bounds) && bounds.Left > original.Left && bounds.Top > original.Top,
+            "A janela não permite movimentação.");
+        Check(shrink <= 0 || bounds.Right - bounds.Left < original.Right - original.Left, "A janela não permite redução de tamanho.");
         window.Width += 24; window.UpdateLayout();
         Check(GetWindowRect(handle, out bounds) && bounds.Right - bounds.Left > original.Right - original.Left,
             "A janela não permite aumentar o tamanho.");
