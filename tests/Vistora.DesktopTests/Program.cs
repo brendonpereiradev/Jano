@@ -42,7 +42,8 @@ internal static class Program
             ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit),
             ("Histórico mostra o motivo da visita selecionada com a cor do estado", HistoryMessage),
             ("Perfil incompleto mostra os erros no painel, sem abrir janela", IncompleteProfile),
-            ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation)
+            ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation),
+            ("Cancelar o editor com alterações pede confirmação", ProfileEditorUnsavedChanges)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -438,6 +439,36 @@ internal static class Program
                 "O pavimento repetido não foi marcado no editor.");
         }
         finally { editor.Close(); }
+    }
+
+    private static void ProfileEditorUnsavedChanges()
+    {
+        ProfileWindow Open(Func<bool> confirm)
+        {
+            var editor = new ProfileWindow(Profile()) { ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
+            typeof(ProfileWindow).GetProperty("ConfirmDiscard", PrivateInstance)!.SetValue(editor, confirm);
+            editor.Show(); editor.UpdateLayout(); return editor;
+        }
+        void Cancel(ProfileWindow editor) => typeof(ProfileWindow).GetMethod("Cancel", PrivateInstance)!.Invoke(editor, [null, null]);
+        var asked = 0;
+        var untouched = Open(() => { asked++; return false; });
+        Cancel(untouched);
+        Check(!untouched.IsVisible && asked == 0, "Cancelar sem alterações pediu confirmação ou não fechou.");
+        var edited = Open(() => { asked++; return false; });
+        try
+        {
+            ((TextBox)edited.FindName("NameBox")).Text = "Unidade renomeada";
+            Cancel(edited);
+            Check(edited.IsVisible && asked == 1, "Cancelar com alterações fechou sem confirmação.");
+            ((TextBox)edited.FindName("NameBox")).Text = "Unidade A";
+            Cancel(edited);
+            Check(!edited.IsVisible && asked == 1, "Desfazer a alteração ainda pediu confirmação.");
+        }
+        finally { edited.Close(); }
+        var floors = Open(() => { asked++; return true; });
+        typeof(ProfileWindow).GetMethod("AddFloor", PrivateInstance)!.Invoke(floors, [null, null]);
+        floors.Close();
+        Check(!floors.IsVisible && asked == 2, "Fechar a janela depois de incluir um pavimento não pediu confirmação.");
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

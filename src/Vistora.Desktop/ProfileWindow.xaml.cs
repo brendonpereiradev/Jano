@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -12,10 +14,18 @@ public partial class ProfileWindow : Window
     public VisitProfile Profile { get; }
     private readonly ObservableCollection<Floor> floors;
     private readonly ObservableCollection<string> attachments;
+    // Cópia serializada recebida, para saber se Cancelar ou fechar perderia alterações.
+    private readonly string original;
+    private bool saved;
+    internal Func<bool> ConfirmDiscard { get; set; }
     public ProfileWindow(VisitProfile profile)
     {
         InitializeComponent();
         Profile = Serialization.Copy(profile);
+        original = JsonSerializer.Serialize(Profile, Serialization.Options);
+        ConfirmDiscard = () => MessageBox.Show(this, "Descartar as alterações deste perfil?", "Vistora",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+        Closing += ConfirmClosing;
         DataContext = Profile;
         floors = new(Profile.Floors);
         FloorsGrid.ItemsSource = floors;
@@ -74,7 +84,7 @@ public partial class ProfileWindow : Window
         Profile.Floors = floors.ToList();
         Profile.Attachments = attachments.ToList();
         Profile.Name = Profile.Name.Trim(); Profile.ReporterEmail = Profile.ReporterEmail.Trim(); Profile.Unit = Profile.Unit.Trim();
-        DialogResult = true;
+        saved = true; DialogResult = true;
     }
     // O campo a corrigir fica marcado em vermelho na aba em que está, com o motivo ao lado dos botões.
     private void ShowInvalid(Control field, int tab, string message)
@@ -89,5 +99,19 @@ public partial class ProfileWindow : Window
         ValidationMessage.Text = "";
         NameBox.ClearValue(BorderBrushProperty); FloorsGrid.ClearValue(BorderBrushProperty);
     }
-    private void Cancel(object sender, RoutedEventArgs e) => DialogResult = false;
+    internal bool HasChanges
+    {
+        get
+        {
+            FloorsGrid.CommitEdit(DataGridEditingUnit.Cell, true); FloorsGrid.CommitEdit(DataGridEditingUnit.Row, true);
+            var current = Serialization.Copy(Profile);
+            current.Floors = floors.ToList(); current.Attachments = attachments.ToList();
+            return JsonSerializer.Serialize(current, Serialization.Options) != original;
+        }
+    }
+    private void ConfirmClosing(object? sender, CancelEventArgs e)
+    {
+        if (!saved && HasChanges && !ConfirmDiscard()) e.Cancel = true;
+    }
+    private void Cancel(object sender, RoutedEventArgs e) => Close();
 }
