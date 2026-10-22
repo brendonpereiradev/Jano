@@ -37,7 +37,8 @@ internal static class Program
             ("Cancelar a limpeza preserva dados e a confirmação informa seu alcance", CancelHistoryCleanup),
             ("Limpeza esvazia histórico e pendências e restaura o perfil", ClearHistory),
             ("Limpeza respeita carregamento, execução, exportação e prévia", CleanupGuards),
-            ("Falha parcial de limpeza mantém registros restantes na tela", PartialHistoryCleanup)
+            ("Falha parcial de limpeza mantém registros restantes na tela", PartialHistoryCleanup),
+            ("Painel de status mostra a mensagem e a cor do estado da visita", RunStatusPanel)
         };
         var failed = 0;
         foreach (var (name, test) in tests)
@@ -309,6 +310,29 @@ internal static class Program
         }
         Clean(window, _ => true);
         Check(Control<DataGrid>(window, "HistoryGrid").Items.Count == 0, "Falha parcial impediu nova tentativa.");
+    }
+
+    private static void RunStatusPanel()
+    {
+        var first = Profile(); var second = Profile("Unidade B"); var run = Run(first);
+        run.State = RunState.Failed; run.Message = "O campo “Andar” não corresponde a Pavimento 1.";
+        using var fixture = new Fixture([first, second], [run]); var window = fixture.Window;
+        var status = Control<TextBlock>(window, "RunStatus");
+        Brush Color(string key) => (Brush)Application.Current.Resources[key];
+        Check(SelectedRun(window) == run && status.Visibility == Visibility.Visible && status.Text == run.Message && status.Foreground == Color("Red"),
+            "O motivo da falha da visita pendente não apareceu em vermelho.");
+        Screenshot(window, "status-falha");
+        run.State = RunState.Running; run.Message = "Faça login no Jira na janela do Edge. A execução continuará após o login.";
+        Invoke(window, "ShowProgress", run);
+        Check(status.Text == run.Message && status.Foreground == Color("Ink"), "O progresso da execução não atualizou o status.");
+        run.State = RunState.Interrupted; run.Message = "Execução interrompida. O progresso foi salvo.";
+        Invoke(window, "ShowProgress", run);
+        Check(status.Text == run.Message && status.Foreground == Color("Amber"), "A interrupção não foi destacada.");
+        Invoke(window, "SetBusy", true); Invoke(window, "Stop", null, null);
+        Check(status.Text.StartsWith("Parando") && status.Foreground == Color("Muted"), "Parar não informou a interrupção segura.");
+        Invoke(window, "SetBusy", false);
+        Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
+        Check(SelectedRun(window) is null && status.Visibility == Visibility.Collapsed, "O status de outra visita continuou visível.");
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

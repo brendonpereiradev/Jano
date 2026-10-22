@@ -55,6 +55,7 @@
             </Grid>
             <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="16" Margin="0,16,0,14">
               <StackPanel>
+                <TextBlock x:Name="RunStatus" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,12" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite"/>
                 <ProgressBar x:Name="RunProgress" Maximum="100"/>
                 <ScrollViewer x:Name="RunFloorsScroll" Visibility="Collapsed" MaxHeight="96" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,12,0,0">
                   <ItemsControl x:Name="RunFloorList" IsTabStop="False">

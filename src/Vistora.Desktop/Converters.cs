@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
 using Vistora.Core;
 
 namespace Vistora.Desktop;
@@ -9,13 +10,14 @@ namespace Vistora.Desktop;
 /// <summary>Cor do texto de um RunState: concluída = teal, em execução = ink, interrompida = âmbar, demais = vermelho.</summary>
 public sealed class RunStateBrushConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => value switch
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) => For(value as RunState? ?? RunState.Failed);
+    public static Brush For(RunState state) => (Brush)Application.Current.Resources[state switch
     {
-        RunState.Completed => Application.Current.Resources["Teal"],
-        RunState.Running => Application.Current.Resources["Ink"],
-        RunState.Interrupted => Application.Current.Resources["Amber"],
-        _ => Application.Current.Resources["Red"]
-    };
+        RunState.Completed => "Teal",
+        RunState.Running => "Ink",
+        RunState.Interrupted => "Amber",
+        _ => "Red"
+    }];
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => throw new NotSupportedException();
 }
 

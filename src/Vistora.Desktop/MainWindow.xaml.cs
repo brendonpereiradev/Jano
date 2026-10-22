@@ -189,6 +189,7 @@ public partial class MainWindow : Window
         FloorGrid.ItemsSource = floors;
         FloorGrid.SelectedIndex = floors?.Count > 0 ? 0 : -1;
         ShowRunFloors(run);
+        ShowRunStatus(run);
         VisitColumn.Visibility = run is null ? Visibility.Visible : Visibility.Collapsed;
         var profileHasPending = ActiveProfile is not null && runs.Any(r => r.Profile.Id == ActiveProfile.Id && r.State != RunState.Completed);
         ExecuteButton.Content = run is not null || profileHasPending ? "Retomar visita preventiva" : "Executar visita preventiva";
@@ -209,6 +210,14 @@ public partial class MainWindow : Window
         RunFloorList.ItemsSource = null; RunFloorList.ItemsSource = run?.Floors;
         RunFloorsScroll.Visibility = run is { Floors.Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
         RunProgress.Value = run is null || run.Floors.Count == 0 ? 0 : run.Floors.Sum(f => (int)f.Stage) * 100d / (run.Floors.Count * 4);
+    }
+    // A mensagem salva pelo motor explica o passo atual, o pedido de login e o motivo de uma falha.
+    private void ShowRunStatus(VisitRun? run) => ShowStatus(run?.Message, run is null ? null : RunStateBrushConverter.For(run.State));
+    private void ShowStatus(string? text, Brush? color = null)
+    {
+        RunStatus.Text = text ?? "";
+        RunStatus.Foreground = color ?? (Brush)FindResource("Ink");
+        RunStatus.Visibility = string.IsNullOrWhiteSpace(text) ? Visibility.Collapsed : Visibility.Visible;
     }
     private void UpdateExecutionControls()
     {
@@ -342,15 +351,18 @@ public partial class MainWindow : Window
             RefreshHistory(run.Id);
             RefreshPendingVisits(run.State == RunState.Completed ? null : run.Id);
             if (run.State == RunState.Completed) ShowRunFloors(run);
+            ShowRunStatus(run);
         }
     }
     private void Stop(object sender, RoutedEventArgs e)
     {
         cancellation?.Cancel(); StopButton.IsEnabled = false;
+        ShowStatus("Parando com segurança… a etapa em andamento será concluída antes de interromper.", (Brush)FindResource("Muted"));
     }
     private void ShowProgress(VisitRun run)
     {
         ShowRunFloors(run);
+        ShowRunStatus(run);
         HistoryGrid.Items.Refresh();
         if (HistoryGrid.SelectedItem is VisitRun selected && selected.Id == run.Id)
             RunFloorGrid.Items.Refresh();
@@ -372,9 +384,29 @@ public partial class MainWindow : Window
     private async Task CheckAccessAsync(CancellationToken token)
     {
         diagnostics.AppEvent("access.started", "Verificação de acesso iniciada.");
-        await using var browser = new EdgeJiraAutomation(store);
-        await browser.ConnectAsync(settings, message => diagnostics.AppEvent("access.progress", message), token);
-        diagnostics.AppEvent("access.confirmed", "Acesso ao formulário confirmado.");
+        ShowStatus("Abrindo o Edge para verificar o acesso ao Jira…");
+        try
+        {
+            await using var browser = new EdgeJiraAutomation(store);
+            await browser.ConnectAsync(settings, message =>
+            {
+                diagnostics.AppEvent("access.progress", message);
+                Dispatcher.Invoke(() => ShowStatus(message));
+            }, token);
+            diagnostics.AppEvent("access.confirmed", "Acesso ao formulário confirmado.");
+            ShowStatus("Acesso confirmado: o formulário de visita preventiva carregou no Edge.", (Brush)FindResource("Teal"));
+        }
+        // O resultado fica no painel de status; uma janela de erro repetiria a mesma informação.
+        catch (OperationCanceledException)
+        {
+            diagnostics.AppEvent("access.cancelled", "Verificação de acesso interrompida.");
+            ShowStatus("Verificação de acesso interrompida.", (Brush)FindResource("Amber"));
+        }
+        catch (Exception ex)
+        {
+            diagnostics.AppEvent("access.failed", "Não foi possível confirmar o acesso.", DiagnosticLevel.Error, ex, code: "ACCESS_CHECK_FAILED");
+            ShowStatus("Não foi possível confirmar o acesso. " + ex.Message, (Brush)FindResource("Red"));
+        }
     }
     private void RefreshHistory(string? selectedId = null)
     {
