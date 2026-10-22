@@ -26,7 +26,7 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 | Perfis de unidades | Cadastra solicitante, unidade, pavimentos, resoluções e anexos opcionais. |
 | Automação no Edge | Preenche os formulários e executa as transições do chamado pela interface do Jira. |
 | Acompanhamento | Mostra o número do chamado e as etapas de cada pavimento durante a execução. |
-| Retomada de pendências | Recupera os dados originais da visita e confere os chamados antes de continuar. |
+| Retomada de pendências | Recupera os dados originais da visita e confere os chamados antes de continuar. Visitas sem chamados podem ser descartadas. |
 | Conferência de resultados | Verifica responsável, status, resolução, comentário público e equipe no fechamento. |
 | Histórico e diagnóstico | Reúne os resultados das visitas e exporta um ZIP de registros para análise. |
 

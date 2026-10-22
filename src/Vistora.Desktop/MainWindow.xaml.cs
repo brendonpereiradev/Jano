@@ -83,7 +83,7 @@ public partial class MainWindow : Window
                         Profile = Serialization.Copy(example), State = RunState.Interrupted,
                         CreatedAt = DateTimeOffset.Now.AddMinutes(-8), Message = "Execução interrompida. Retome para continuar.",
                         Floors = example.Floors.Select((f, i) => new FloorRun
-                        { Floor = Serialization.Copy(f), IssueKey = stages[i % stages.Length] == FloorStage.Pending ? null : $"SD-{1001 + i}", Stage = stages[i % stages.Length], Message = "Chamado aberto" }).ToList()
+                        { Floor = Serialization.Copy(f), IssueKey = stages[i % stages.Length] == FloorStage.Pending ? null : $"SD-{1001 + i}", Stage = stages[i % stages.Length], Message = PreviewMessage(stages[i % stages.Length]) }).ToList()
                     });
                     // Outros estados no histórico, de perfis distintos para não gerar pendência no perfil ativo.
                     foreach (var (state, label, minutes) in new[] { (RunState.Completed, "Concluída", -1500), (RunState.NeedsReconciliation, "Vincular", -2900), (RunState.Failed, "Falha", -4400) })
@@ -121,6 +121,16 @@ public partial class MainWindow : Window
             MessageBox.Show(this, ex.Message, "Vistora", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
+
+    // Mesmas mensagens que o motor grava em cada etapa, para que as capturas do README mostrem o fluxo real.
+    private static string PreviewMessage(FloorStage stage) => stage switch
+    {
+        FloorStage.Closed => "Fechado e conferido",
+        FloorStage.Started => "Em atendimento",
+        FloorStage.Assigned => "Atribuição conferida",
+        FloorStage.Created => "Chamado aberto",
+        _ => "Aguardando"
+    };
 
     private void ShowDiagnosticWarning(string message) => Dispatcher.InvokeAsync(() =>
     { DiagnosticWarning.Text = message; DiagnosticWarning.Visibility = Visibility.Visible; });

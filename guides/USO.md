@@ -26,7 +26,7 @@ Na aba **Dados do formulário**, informe o nome do perfil, o nome da unidade no 
 
 Na aba **Pavimentos e resoluções**, ajuste o nome do pavimento, o setor e a sala. Selecione uma linha para editar a resolução correspondente. Esse texto será utilizado na resolução do chamado e no comentário público.
 
-Use **Adicionar pavimento**, **Remover**, **Subir** e **Descer** para organizar a lista. Os textos iniciais são modelos genéricos: revise-os para descrever a visita realizada. Clique em **Salvar perfil** ao terminar. O perfil pode ser salvo durante seu preenchimento; antes da execução, o aplicativo valida os campos obrigatórios dos pavimentos selecionados.
+Use **Adicionar pavimento**, **Remover**, **Subir** e **Descer** para organizar a lista. Os textos iniciais são modelos genéricos: revise-os para descrever a visita realizada. Clique em **Salvar perfil** ao terminar. O perfil pode ser salvo durante seu preenchimento; antes da execução, o aplicativo valida os campos obrigatórios dos pavimentos selecionados. Se o nome do perfil estiver vazio ou houver pavimentos com o mesmo nome, o editor marca o campo em vermelho e mostra o motivo ao lado dos botões. Cancelar ou fechar a janela com alterações não salvas pede confirmação.
 
 ## Verificar o acesso
 
@@ -42,17 +42,25 @@ O técnico responsável será a conta conectada no Edge. O solicitante dos chama
 4. Faça login no Edge se a sessão precisar de autenticação.
 5. Acompanhe as etapas e os números dos chamados na tela.
 
+O painel acima dos pavimentos mostra a etapa em andamento, o pedido de login e o motivo de uma falha, com a contagem de pavimentos fechados à direita. Se o perfil estiver incompleto, o painel lista em vermelho os campos a corrigir, e nenhum chamado é aberto.
+
 O Vistora abre os chamados dos pavimentos selecionados. Depois, confere a atribuição ao técnico, inicia o atendimento e fecha os chamados com seus respectivos textos. Uma visita só é concluída após a conferência do status, da resolução, do comentário público e da equipe de fechamento.
 
-Em **Histórico**, selecione uma visita para consultar o resultado e as etapas de cada chamado.
+Em **Histórico**, selecione uma visita para consultar o resultado, a última mensagem registrada e as etapas de cada chamado.
 
 ## Parar e retomar
 
-Clique em **Parar execução** para solicitar a interrupção. Se uma ação já tiver sido enviada ao Jira, o aplicativo aguarda seu resultado antes de parar. O progresso fica salvo localmente.
+Clique em **Parar execução** para solicitar a interrupção. O botão passa a **Parando…** até a execução terminar. Se uma ação já tiver sido enviada ao Jira, o aplicativo aguarda seu resultado antes de parar. O progresso fica salvo localmente.
 
 Para continuar, volte a **Executar visita**. O aplicativo seleciona uma pendência do perfil quando a escolha é inequívoca. Havendo várias pendências, escolha a desejada em **Visita pendente** e clique em **Retomar visita preventiva**. Também é possível selecionar visitas de perfis excluídos.
 
 Os dados de uma visita pendente permanecem iguais aos utilizados na sua criação. Alterações posteriores no perfil e nas configurações serão utilizadas em novas visitas. Os pavimentos da pendência ficam disponíveis para consulta, e os chamados conhecidos são conferidos antes da continuação.
+
+### Descartar uma visita sem chamados
+
+Uma visita que parou antes de abrir qualquer chamado pode ser apagada sozinha. Selecione a visita pendente e clique em **Descartar visita**, ao lado de **Retomar visita preventiva**. A confirmação oferece **Cancelar** como opção padrão. O registro, os logs e as capturas dessa visita são apagados, e o perfil volta a permitir uma nova visita.
+
+O botão só aparece quando nenhum pavimento tem chamado ou abertura em andamento. Visitas com chamados no Jira precisam ser retomadas ou conferidas.
 
 ### Abertura sem número confirmado
 
