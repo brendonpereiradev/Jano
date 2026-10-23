@@ -80,7 +80,7 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 |---|---|
 | `.\scripts\Bootstrap.ps1` | Instala o SDK localmente em `.tools/dotnet`. |
 | `.\scripts\Build.ps1` | Compila a solução em Release. |
-| `.\scripts\Test.ps1` | Executa os testes; `-SkipBrowser` dispensa os testes que abrem o Edge. |
+| `.\scripts\Test.ps1` | Executa os testes; `-SkipBrowser` dispensa os testes que abrem o Edge e `-BrowserOnly` roda só esses. |
 | `.\scripts\Publish.ps1` | Gera a aplicação com runtime incluído e o ZIP da versão em `output/release/`. |
 
 ---

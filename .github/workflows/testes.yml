@@ -26,7 +26,26 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Os testes do Edge ficam fora da CI até serem conferidos no executor do GitHub.
       - name: Compilar e testar
         shell: pwsh
         run: .\scripts\Test.ps1 -SkipBrowser
+
+  # Job separado: uma falha do Edge do executor aparece sozinha e não esconde o resultado das regras e da interface.
+  edge:
+    name: Edge com páginas locais
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Versão do Edge
+        shell: pwsh
+        run: (Get-Item "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion
+
+      - name: Compilar e testar o Edge
+        shell: pwsh
+        run: .\scripts\Test.ps1 -BrowserOnly
