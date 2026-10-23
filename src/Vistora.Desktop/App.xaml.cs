@@ -39,8 +39,13 @@ public partial class App : Application
             diagnostics.AppEvent("app.task_error", "Erro em tarefa de segundo plano.", DiagnosticLevel.Error, args.Exception);
         var pageIndex = Array.IndexOf(e.Args, "--preview-page");
         var page = preview && pageIndex >= 0 && e.Args.Length > pageIndex + 1 && int.TryParse(e.Args[pageIndex + 1], out var n) ? n : 0;
-        MainWindow window;
-        try { window = new MainWindow(preview, preview && e.Args.Contains("--preview-pending"), diagnostics, page); }
+        MainWindow? window = null;
+        try
+        {
+            var viewModel = new MainViewModel(diagnostics, new WindowDialogs(() => window, diagnostics), preview, preview && e.Args.Contains("--preview-pending"));
+            window = new MainWindow(viewModel, page);
+            window.Loaded += async (_, _) => await viewModel.LoadAsync();
+        }
         catch (Exception ex)
         {
             diagnostics.AppEvent("app.startup_failed", "Não foi possível iniciar o aplicativo.", DiagnosticLevel.Error, ex, code: "STARTUP_FAILED");

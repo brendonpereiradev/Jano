@@ -18,6 +18,8 @@
     <SolidColorBrush x:Key="FocusRingBrush" Color="#E0A04B" />
 
     <local:RunStateBrushConverter x:Key="RunStateBrush" />
+    <local:StatusToneBrushConverter x:Key="ToneBrush" />
+    <BooleanToVisibilityConverter x:Key="Visible" />
     <local:StageSegmentConverter x:Key="StageSegment" />
     <local:FileNameConverter x:Key="FileName" />
 
