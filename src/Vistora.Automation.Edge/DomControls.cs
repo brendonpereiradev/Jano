@@ -66,19 +66,33 @@ internal sealed class DomControls(IPage page, IReadOnlyDictionary<string, string
         return null;
     }
 
-    public async Task FillAsync(string key, string[] labels, string value, ILocator? scope = null)
+    // Devolve o campo preenchido para que o chamador confira o valor de novo antes do envio.
+    public async Task<ILocator> FillAsync(string key, string[] labels, string value, ILocator? scope = null)
     {
         var field = await FieldAsync(key, labels, scope);
         await field.FillAsync(value);
         // Sair do campo dispara a validação do Jira; aguardar evita avançar com o estado anterior.
         await field.PressAsync("Tab");
         await Task.Delay(400);
-        var tag = await field.EvaluateAsync<string>("e => e.tagName.toLowerCase()");
-        var actual = tag is "input" or "textarea" ? await field.InputValueAsync() : await field.InnerTextAsync();
-        var matches = Normalize(actual) == Normalize(value);
+        var matches = await HasValueAsync(field, value);
         diagnostics?.Event("control.filled", "Preenchimento conferido.", matches ? DiagnosticLevel.Debug : DiagnosticLevel.Warning,
             new() { ["controlKey"] = key, ["matches"] = matches });
         if (!matches) throw new InvalidOperationException($"O preenchimento de “{labels[0]}” não foi confirmado.");
+        return field;
+    }
+
+    public static async Task<bool> HasValueAsync(ILocator field, string value)
+    {
+        var tag = await field.EvaluateAsync<string>("e => e.tagName.toLowerCase()");
+        var actual = tag is "input" or "textarea" ? await field.InputValueAsync() : await field.InnerTextAsync();
+        return Normalize(actual) == Normalize(value);
+    }
+
+    // Confere sem clicar que a ação existe, é única e está habilitada.
+    public async Task<bool> ActionReadyAsync(string key, string[] names, ILocator? scope = null)
+    {
+        var locator = await TryActionAsync(key, names, scope);
+        return locator is not null && await locator.IsEnabledAsync();
     }
 
     public async Task ChooseAsync(string key, string[] labels, string query, Regex exactOption, string expected, ILocator? scope = null)

@@ -137,6 +137,7 @@ var startRequests = 0;
 var startDelayMs = 1500;
 var startMode = "unrelated";
 var rejectStart = false;
+var disabledSubmit = false;
 var workflow = new JiraWorkflow();
 app.MapPost("/fixture/start", async (HttpContext ctx) =>
 {
@@ -164,7 +165,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
         return Results.Content("<html><body><label>Abrir esta requisição em nome de*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
-    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, workflow), "text/html; charset=utf-8");
+    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, workflow), "text/html; charset=utf-8");
 });
 await app.StartAsync();
 var root = Path.Combine(Path.GetTempPath(), "VistoraBrowserTests", Guid.NewGuid().ToString("N"));
@@ -203,7 +204,9 @@ try
     var createdKeys = run.Floors.Select(f => f.IssueKey).ToArray();
     var portalVisitsBeforeResume = portalVisits;
     run = (await store.LoadRunsAsync()).Single();
+    var resumeTime = System.Diagnostics.Stopwatch.StartNew();
     await engine.ExecuteAsync(run, default);
+    Console.WriteLine($"TEMPO: atribuir, iniciar e fechar levou {resumeTime.Elapsed.TotalSeconds / run.Floors.Count:0.0} s por pavimento.");
     Check(run.State == RunState.Completed, run.Message);
     Check(assignmentRequests == 2, "A espera repetiu a atribuição.");
     Check(startRequests == 2, "O inicio do atendimento foi reenviado durante a espera.");
@@ -231,6 +234,11 @@ try
         Check(transitionEvents.Count(e => e.EventName == "action.clicked" && e.Details?.GetValueOrDefault("controlKey")?.ToString() == key) == 2,
             $"A espera repetiu o clique da transição {key}.");
     }
+    Check(transitionEvents.Count(e => e.EventName == "field.verified") == 7 * run.Floors.Count && transitionEvents.Any(e => e.EventName == "issue.fields_reused"),
+        "Os campos de abertura não foram conferidos uma única vez por chamado na tentativa.");
+    Check(transitionEvents.Count(e => e.EventName == "submit.ready" && e.Details?.GetValueOrDefault("controlKey")?.ToString() == "close.submit") == run.Floors.Count,
+        "O fechamento não aguardou o formulário pronto para envio.");
+    Console.WriteLine("PASS: cada chamado tem os campos de abertura conferidos uma vez por tentativa; as leituras seguintes conferem status e responsável.");
     Check(!eventText.Contains(profile.ReporterEmail) && !eventText.Contains(profile.FullName) && !eventText.Contains(profile.Floors[0].Resolution), "Dados do formulário vazaram para os logs.");
     Console.WriteLine("PASS: navegador registra etapas e retomadas sem valores privados do formulário.");
     Console.WriteLine("PASS: retomada após criação atribui, inicia e fecha os mesmos chamados.");
@@ -396,6 +404,19 @@ try
     startMode = "direct";
     Console.WriteLine("PASS: inicio rejeitado preserva pendencia; retomada aguarda confirmacao atrasada e habilitada sem duplicar chamado ou envio.");
 
+    disabledSubmit = true;
+    var submitProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    submitProbe.Settings = Serialization.Copy(run.Settings); submitProbe.Settings.TimeoutSeconds = 1;
+    var portalVisitsBeforeSubmitProbe = portalVisits;
+    await engine.ExecuteAsync(submitProbe, default);
+    Check(submitProbe.State == RunState.Failed && submitProbe.Floors[0].IssueKey is null && submitProbe.Floors[0].PendingAction == PendingAction.None &&
+        portalVisits == portalVisitsBeforeSubmitProbe + 1, "Formulário com envio desabilitado foi enviado ou deixou uma abertura pendente.");
+    using (var summary = JsonDocument.Parse(await File.ReadAllTextAsync(Directory.EnumerateFiles(store.DiagnosticsDirectory(submitProbe.Id), "summary.json", SearchOption.AllDirectories).Single())))
+        Check(summary.RootElement.GetProperty("errorCode").GetString() == "SUBMIT_NOT_READY" && summary.RootElement.GetProperty("failedStep").GetString() == "create.prepare",
+            "Envio indisponível perdeu a causa técnica ou a etapa.");
+    disabledSubmit = false;
+    Console.WriteLine("PASS: botão de envio desabilitado interrompe antes da abertura, sem pendência a conferir.");
+
     // O Jira de outra unidade pode usar outros nomes no fluxo e outro endereço para o chamado.
     workflow = new JiraWorkflow
     {
@@ -516,7 +537,7 @@ static void Check(bool condition, string message) { if (!condition) throw new Ex
 static class Fixture
 {
     public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode,
-        JiraWorkflow workflow) => """
+        bool disabledSubmit, JiraWorkflow workflow) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
     <style>body{font:16px Segoe UI;padding:28px;background:#f6f8fb;color:#123743}main{max-width:850px;margin:auto;background:white;padding:24px}label{display:block;margin:14px 0 4px}input,textarea,select{font:inherit;padding:8px;width:90%}button{padding:10px;margin:8px}dl>div{display:flex;gap:24px;padding:8px;border-bottom:1px solid #ddd}dl>div>span:first-child{width:250px}dialog{width:650px}pre{white-space:pre-wrap}.options{background:#eef4f4}.options>div{padding:10px;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.combo-control{position:relative}.selected-overlay{position:absolute;inset:0;background:#eef4f4;z-index:2;padding:8px;width:90%}</style></head><body><main id="main"></main>
     <script>
@@ -526,6 +547,7 @@ static class Fixture
     const missingTransition = __MISSING_TRANSITION__;
     const ambiguousTransition = __AMBIGUOUS_TRANSITION__;
     const startMode = '__START_MODE__';
+    const disabledSubmit = __DISABLED_SUBMIT__;
     // Nomes do fluxo como o Jira exibe; um fluxo diferente do padrão também tira o data-testid do status.
     const workflow = __WORKFLOW__;
     const main=document.getElementById('main'); const issues=JSON.parse(localStorage.getItem('issues')||'{}');
@@ -553,7 +575,7 @@ static class Fixture
       ${combo('unit','Unidade - Usuário*','')}<label for="floor">Andar*</label><input id="floor" required>
       <label for="sector">Setor*</label><input id="sector" required><label for="room">Sala*</label><input id="room" required>
       <label for="phone">Telefone</label><input id="phone"><label for="description-label-target">Detalhes / justificativas*</label><div id="description" role="textbox" aria-label="Detalhes / justificativas" contenteditable="true" style="min-height:80px;border:1px solid #ccc"></div>
-      <button type="submit">Enviar</button></form>`;
+      <button type="submit" ${disabledSubmit?'disabled':''}>Enviar</button></form>`;
       for(const label of main.querySelectorAll('label')){
         if(label.textContent.endsWith('*')){const suffix=document.createElement('span');suffix.className='sr-only';suffix.textContent='(required)';label.appendChild(suffix)}
       }
@@ -638,7 +660,7 @@ static class Fixture
     """.Replace("__HIDE_PUBLIC__", hidePublic ? "true" : "false").Replace("__WRONG_LATEST_RESOLUTION__", wrongLatestResolution ? "true" : "false")
         .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("__START_MODE__", startMode)
         .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false")
-        .Replace("__WORKFLOW__", JsonSerializer.Serialize(new
+        .Replace("__DISABLED_SUBMIT__", disabledSubmit ? "true" : "false").Replace("__WORKFLOW__", JsonSerializer.Serialize(new
         {
             waiting = workflow.WaitingStatus.Trim(), inProgress = workflow.InProgressStatus.Trim(), closed = workflow.ClosedStatuses[0].Trim(),
             requestType = workflow.RequestType, start = workflow.StartTransition, close = workflow.CloseTransition,

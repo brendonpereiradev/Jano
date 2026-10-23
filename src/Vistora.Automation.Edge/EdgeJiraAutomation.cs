@@ -21,6 +21,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private DomControls Ui => controls ?? throw new InvalidOperationException("O navegador não está conectado.");
     private JiraWorkflow Workflow => settings.Jira;
     private static readonly Regex IssueKeyPattern = new(@"\b([A-Z][A-Z0-9]*-\d+)\b");
+    private static readonly TimeSpan SubmitStablePeriod = TimeSpan.FromMilliseconds(300);
+    // Chamados com todos os campos já conferidos nesta tentativa, com a visita e o pavimento correspondentes.
+    private readonly Dictionary<string, string> verifiedIssues = [];
 
     public async Task ConnectAsync(AppSettings appSettings, Action<string> report, CancellationToken cancellationToken, string? initialIssueKey = null)
     {
@@ -155,20 +158,24 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (Page.Url != settings.PortalUrl) await NavigateAsync(settings.PortalUrl);
+        // Inclui os envios de anexos, que continuam depois que o nome do arquivo aparece na página.
+        using var mutations = new MutationTracker(Page, settings.JiraUrl);
         var profile = run.Profile;
         await Ui.ChooseAsync("portal.reporter", ["Abrir esta requisição em nome de"], profile.ReporterEmail,
             new Regex($"(?:^|[\\s(<]){Regex.Escape(profile.ReporterEmail)}(?=$|[\\s)>])", RegexOptions.IgnoreCase), profile.ReporterEmail);
         cancellationToken.ThrowIfCancellationRequested();
-        await Ui.FillAsync("portal.title", ["Título"], profile.Title);
-        await Ui.FillAsync("portal.extension", ["Ramal do solicitante"], profile.Extension);
-        await Ui.FillAsync("portal.fullName", ["Nome completo do usuário"], profile.FullName);
+        var filled = new List<(ILocator, string)>();
+        async Task FillTrackedAsync(string key, string[] labels, string value) => filled.Add((await Ui.FillAsync(key, labels, value), value));
+        await FillTrackedAsync("portal.title", ["Título"], profile.Title);
+        await FillTrackedAsync("portal.extension", ["Ramal do solicitante"], profile.Extension);
+        await FillTrackedAsync("portal.fullName", ["Nome completo do usuário"], profile.FullName);
         await Ui.ChooseAsync("portal.unit", ["Unidade - Usuário", "Unidade - usuário"], profile.Unit,
             new Regex($"^{Regex.Escape(profile.Unit)}$", RegexOptions.IgnoreCase), profile.Unit);
-        await Ui.FillAsync("portal.floor", ["Andar"], floor.Floor.Name);
-        await Ui.FillAsync("portal.sector", ["Setor", "Setor/Local"], floor.Floor.Sector);
-        await Ui.FillAsync("portal.room", ["Sala"], floor.Floor.Room);
-        await Ui.FillAsync("portal.phone", ["Telefone"], profile.Phone);
-        await Ui.FillAsync("portal.description", ["Detalhes / justificativas", "Detalhes / justificativas:"], profile.Description);
+        await FillTrackedAsync("portal.floor", ["Andar"], floor.Floor.Name);
+        await FillTrackedAsync("portal.sector", ["Setor", "Setor/Local"], floor.Floor.Sector);
+        await FillTrackedAsync("portal.room", ["Sala"], floor.Floor.Room);
+        await FillTrackedAsync("portal.phone", ["Telefone"], profile.Phone);
+        await FillTrackedAsync("portal.description", ["Detalhes / justificativas", "Detalhes / justificativas:"], profile.Description);
         if (profile.Attachments.Count > 0)
         {
             diagnostics?.Event("attachments.prepared", "Anexos preparados.", details: new() { ["count"] = profile.Attachments.Count });
@@ -178,8 +185,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             await upload.SetInputFilesAsync(profile.Attachments.ToArray());
             foreach (var attachment in profile.Attachments)
                 await Page.GetByText(Path.GetFileName(attachment), new() { Exact = true }).First.WaitForAsync();
+            mutations.MarkActivity();
         }
-        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        await WaitReadyToSubmitAsync("portal.submit", ["Enviar"], null, mutations, filled, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 
@@ -222,6 +230,39 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         new[] { Workflow.WaitingStatus, Workflow.InProgressStatus }.Concat(Workflow.ClosedStatuses).Select(s => Regex.Escape(DomControls.Normalize(s))))})" +
         @"(?:\s*-\s*(?:Change status|Alterar status))?$", RegexOptions.IgnoreCase);
 
+    // Substitui a espera fixa antes de cada envio. O formulário precisa ficar estável por um instante:
+    // sem gravações pendentes, com o botão de envio habilitado e os campos ainda com os valores preenchidos.
+    private async Task WaitReadyToSubmitAsync(string key, string[] names, ILocator? scope, MutationTracker mutations,
+        IReadOnlyList<(ILocator Field, string Value)> fields, CancellationToken cancellationToken)
+    {
+        var begin = Stopwatch.GetTimestamp();
+        long? readySince = null;
+        do
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var ready = mutations.Settled && await Ui.ActionReadyAsync(key, names, scope);
+            foreach (var (field, value) in fields)
+            {
+                if (!ready) break;
+                ready = await DomControls.HasValueAsync(field, value);
+            }
+            if (!ready) readySince = null;
+            else if (readySince is null) readySince = Stopwatch.GetTimestamp();
+            else if (Stopwatch.GetElapsedTime(readySince.Value) >= SubmitStablePeriod)
+            {
+                diagnostics?.Event("submit.ready", "Formulário pronto para envio.", DiagnosticLevel.Debug,
+                    new() { ["controlKey"] = key, ["mutationCount"] = mutations.Count }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+                return;
+            }
+            await Task.Delay(150, cancellationToken);
+        } while (Stopwatch.GetElapsedTime(begin) < TimeSpan.FromSeconds(settings.TimeoutSeconds));
+        diagnostics?.Event("submit.not_ready", "O formulário não ficou pronto para envio.", DiagnosticLevel.Warning,
+            new() { ["controlKey"] = key }, errorCode: "SUBMIT_NOT_READY", durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+        var error = new InvalidOperationException($"O formulário não ficou pronto para “{names[0]}” no tempo esperado. Nada foi enviado; confira a página do Jira e retome pela aba Executar visita.");
+        error.Data["DiagnosticCode"] = "SUBMIT_NOT_READY";
+        throw error;
+    }
+
     public async Task<IssueSnapshot> ReadIssueAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -234,25 +275,16 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             throw new InvalidOperationException("O título do chamado não corresponde à visita configurada.");
         var body = await Page.Locator("body").InnerTextAsync();
         if (!Regex.IsMatch(body, $"\\b{Regex.Escape(key)}\\b")) throw new InvalidOperationException("O número exibido não corresponde ao chamado registrado.");
-        foreach (var (field, labels, expected) in new (string, string[], string)[]
+        // Os dados de abertura não mudam durante a visita. Depois da primeira conferência completa
+        // nesta tentativa, as leituras seguintes do mesmo pavimento conferem só status e responsável.
+        var identity = $"{run.Id}/{floor.Floor.Id}";
+        if (verifiedIssues.GetValueOrDefault(key) == identity)
+            diagnostics?.Event("issue.fields_reused", "Campos de abertura já conferidos nesta tentativa.", DiagnosticLevel.Debug);
+        else
         {
-            ("issue.floor", ["Andar"], floor.Floor.Name), ("issue.unit", ["Unidade - Usuário"], run.Profile.Unit),
-            ("issue.sector", ["Setor/Local", "Setor"], floor.Floor.Sector), ("issue.room", ["Sala"], floor.Floor.Room),
-            ("issue.fullName", ["Nome completo do usuário"], run.Profile.FullName),
-            ("issue.extension", ["Ramal do solicitante"], run.Profile.Extension),
-            ("issue.requestType", ["Request Type", "Tipo de solicitação"], Workflow.RequestType)
-        })
-        {
-            var actual = await Ui.ValueAsync(field, labels);
-            var matches = string.Equals(DomControls.Normalize(actual), DomControls.Normalize(expected), StringComparison.OrdinalIgnoreCase);
-            diagnostics?.Event("field.verified", "Campo conferido.", matches ? DiagnosticLevel.Debug : DiagnosticLevel.Warning,
-                new() { ["controlKey"] = field, ["matches"] = matches });
-            if (!matches)
-                throw new InvalidOperationException($"{key}: o campo “{labels[0]}” não corresponde a {floor.Name}. Confira os dados antes de retomar.");
+            await VerifyIssueFieldsAsync(run, floor, key);
+            verifiedIssues[key] = identity;
         }
-        var reporter = await Ui.ValueAsync("issue.reporter", ["Reporter", "Relator", "Solicitante"]);
-        if (!string.Equals(DomControls.NormalizePersonName(reporter), DomControls.NormalizePersonName(run.Profile.ReporterName), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"{key}: o solicitante configurado não foi encontrado na página.");
         var status = await StatusAsync(cancellationToken);
         var closed = IsClosedStatus(status);
         var started = SameText(status, Workflow.InProgressStatus);
@@ -273,6 +305,29 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         return new(key, status, self, closed, started, resolutionMatches, publicMatches, teamMatches);
     }
 
+    private async Task VerifyIssueFieldsAsync(VisitRun run, FloorRun floor, string key)
+    {
+        foreach (var (field, labels, expected) in new (string, string[], string)[]
+        {
+            ("issue.floor", ["Andar"], floor.Floor.Name), ("issue.unit", ["Unidade - Usuário"], run.Profile.Unit),
+            ("issue.sector", ["Setor/Local", "Setor"], floor.Floor.Sector), ("issue.room", ["Sala"], floor.Floor.Room),
+            ("issue.fullName", ["Nome completo do usuário"], run.Profile.FullName),
+            ("issue.extension", ["Ramal do solicitante"], run.Profile.Extension),
+            ("issue.requestType", ["Request Type", "Tipo de solicitação"], Workflow.RequestType)
+        })
+        {
+            var actual = await Ui.ValueAsync(field, labels);
+            var matches = SameText(actual, expected);
+            diagnostics?.Event("field.verified", "Campo conferido.", matches ? DiagnosticLevel.Debug : DiagnosticLevel.Warning,
+                new() { ["controlKey"] = field, ["matches"] = matches });
+            if (!matches)
+                throw new InvalidOperationException($"{key}: o campo “{labels[0]}” não corresponde a {floor.Name}. Confira os dados antes de retomar.");
+        }
+        var reporter = await Ui.ValueAsync("issue.reporter", ["Reporter", "Relator", "Solicitante"]);
+        if (!string.Equals(DomControls.NormalizePersonName(reporter), DomControls.NormalizePersonName(run.Profile.ReporterName), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"{key}: o solicitante configurado não foi encontrado na página.");
+    }
+
     private async Task<ILocator> StatusButtonAsync(CancellationToken cancellationToken = default)
     {
         var deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
@@ -288,7 +343,15 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
                 throw new InvalidOperationException("O Jira exibiu mais de um controle de status do chamado. Confira a página antes de retomar.");
             }
             if (count == 1 && await button.IsEnabledAsync()) return button;
-            await Task.Delay(200, cancellationToken);
+            if (count == 0)
+            {
+                // Nas leituras que só conferem status e responsável, esta espera é quase todo o tempo da leitura.
+                // O Playwright percebe o controle assim que ele aparece; o limite curto mantém o cancelamento rápido.
+                try { await StatusCandidatesLocator().First.WaitForAsync(new() { State = WaitForSelectorState.Attached, Timeout = 500 }); }
+                catch (TimeoutException) { }
+                continue;
+            }
+            await Task.Delay(100, cancellationToken);
         } while (DateTimeOffset.UtcNow < deadline);
         throw new InvalidOperationException("O controle de status do chamado não carregou no tempo esperado. Confira a página e retome pela aba Executar visita.");
     }
@@ -305,6 +368,12 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         }
         return button.Filter(new() { Visible = true });
     }
+
+    // Qualquer controle visível que StatusButtonLocatorAsync possa escolher.
+    private ILocator StatusCandidatesLocator() => (settings.SelectorOverrides.TryGetValue("issue.status", out var selector)
+        ? Page.Locator(selector)
+        : Page.Locator("[data-testid='issue-field-status.ui.status-view.status-button.status-button']")
+            .Or(Page.GetByRole(AriaRole.Button, new() { NameRegex = StatusNamePattern() }))).Filter(new() { Visible = true });
 
     private async Task<string> StatusAsync(CancellationToken cancellationToken = default) =>
         DomControls.Normalize(await (await StatusButtonAsync(cancellationToken)).InnerTextAsync());
@@ -430,20 +499,23 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         cancellationToken.ThrowIfCancellationRequested();
         if (!SameText(await StatusAsync(cancellationToken), Workflow.InProgressStatus))
             throw new InvalidOperationException($"{floor.IssueKey}: confira o início do atendimento antes do fechamento.");
-        await OpenTransitionAsync("issue.close", DomControls.Normalize(Workflow.CloseTransition), cancellationToken);
+        var closeTransition = DomControls.Normalize(Workflow.CloseTransition);
+        await OpenTransitionAsync("issue.close", closeTransition, cancellationToken);
         var dialog = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true });
         await dialog.First.WaitForAsync();
         dialog = await DomControls.UniqueAsync(dialog, "Fechamento");
-        await Ui.FillAsync("close.resolution", ["Resolução do chamado"], floor.Floor.Resolution, dialog);
+        using var mutations = new MutationTracker(Page, settings.JiraUrl);
+        var resolution = await Ui.FillAsync("close.resolution", ["Resolução do chamado"], floor.Floor.Resolution, dialog);
         // Seleciona explicitamente o comentário público antes de preencher o editor.
         var reply = dialog.GetByText("Reply to customer", new() { Exact = true });
         if (await DomControls.IsUniqueVisibleAsync(reply)) await reply.ClickAsync();
         else await Ui.ClickAsync("close.publicMode", ["Reply to customer", "Responder ao cliente"], dialog);
-        await Ui.FillAsync("close.publicComment", ["Comentário público", "Reply to customer", "Responder ao cliente", "Comentário", "Comment"], floor.Floor.Resolution, dialog);
+        var comment = await Ui.FillAsync("close.publicComment", ["Comentário público", "Reply to customer", "Responder ao cliente", "Comentário", "Comment"], floor.Floor.Resolution, dialog);
         // O valor vem do settings.json editado à mão; espaços extras não fazem parte do nome da equipe.
         var team = DomControls.Normalize(run.Settings.ClosingTeam);
         await Ui.ChooseAsync("close.team", ["Equipe"], team, new Regex($"^{Regex.Escape(team)}$"), team, dialog);
-        await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
+        await WaitReadyToSubmitAsync("close.submit", [closeTransition], dialog, mutations,
+            [(resolution, floor.Floor.Resolution), (comment, floor.Floor.Resolution)], cancellationToken);
         closingDialog = dialog;
         cancellationToken.ThrowIfCancellationRequested();
     }
