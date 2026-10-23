@@ -22,7 +22,7 @@ New-Item -ItemType Directory -Force -Path $taskAppDir | Out-Null
 & $taskDotnet publish $taskDesktopProject -c Release -r win-x64 --self-contained true -o $taskAppDir
 Assert-VistoraExit
 Copy-Item -LiteralPath (Join-Path $taskProjectRoot 'README.md') -Destination (Join-Path $taskAppDir 'COMO-USAR.md')
-$taskDocumentationFiles = @('LICENSE', 'guides/USO.md', 'assets/screenshots/executar-visita.png', 'assets/screenshots/historico.png')
+$taskDocumentationFiles = @('LICENSE', 'guides/USO.md', 'guides/Manual-de-uso-Vistora.pdf', 'assets/screenshots/executar-visita.png', 'assets/screenshots/historico.png')
 foreach ($taskDocumentationFile in $taskDocumentationFiles) {
     $taskDocumentationTarget = Join-Path $taskAppDir $taskDocumentationFile
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $taskDocumentationTarget) | Out-Null
