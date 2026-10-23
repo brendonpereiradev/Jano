@@ -18,6 +18,22 @@ Os três endereços devem usar HTTPS e pertencer ao mesmo servidor. Clique em **
 
 A conta do técnico precisa ter acesso ao formulário e às ações de atribuição, atendimento e fechamento. O fluxo da automação deve corresponder aos campos e às transições disponíveis nesse Jira.
 
+### Nomes do fluxo do Jira
+
+Os nomes de status, transições e tipo de solicitação ficam na seção `Jira` do `settings.json`. Se o fluxo do Jira mudar, feche o Vistora, ajuste esses valores e abra o aplicativo de novo:
+
+| Campo | Padrão |
+|---|---|
+| `WaitingStatus` | `Aguardando N2` |
+| `InProgressStatus` | `Em andamento N2` |
+| `ClosedStatuses` | `Fechado`, `Closed`, `Concluído`, `Concluido` |
+| `RequestType` | `Visita Preventiva` |
+| `StartTransition` | `Iniciar Atendimento` |
+| `CloseTransition` | `Transitar para Fechado` |
+| `IssuePath` | `/jira/servicedesk/projects/{project}/queues/issue/{key}` |
+
+`IssuePath` é o caminho do chamado a partir do endereço do Jira: `{key}` é o número completo, como `SD-123`, e `{project}` é o prefixo, como `SD`. Nenhum valor pode ficar vazio. Um arquivo de versão anterior usa os padrões e passa a mostrar a seção depois que as configurações forem salvas pelo aplicativo. Uma visita já iniciada guarda uma cópia das configurações, e a mudança vale para as visitas novas.
+
 ## Cadastrar uma unidade
 
 Em **Perfis e pavimentos**, selecione o perfil inicial e clique em **Editar**, ou use **Novo perfil** para cadastrar outra unidade.
