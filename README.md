@@ -87,8 +87,8 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 
 ## Documentação
 
-- [Guia de uso](guides/USO.md): configuração de unidades, execução, retomada, diagnóstico e limpeza do histórico.
-- [Manual de uso em PDF](guides/Manual-de-uso-Vistora.pdf): o mesmo conteúdo em formato para imprimir ou compartilhar, com sumário e capturas de tela.
+- [Documentação (MD)](<guides/Documentação (MD).md>): instalação, configuração de unidades, execução, retomada, diagnóstico, limpeza do histórico e problemas comuns.
+- [Documentação (PDF)](<guides/Documentação (PDF).pdf>): o mesmo conteúdo em formato para imprimir ou compartilhar.
 
 ---
 

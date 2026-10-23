@@ -22,7 +22,11 @@ New-Item -ItemType Directory -Force -Path $taskAppDir | Out-Null
 & $taskDotnet publish $taskDesktopProject -c Release -r win-x64 --self-contained true -o $taskAppDir
 Assert-VistoraExit
 Copy-Item -LiteralPath (Join-Path $taskProjectRoot 'README.md') -Destination (Join-Path $taskAppDir 'COMO-USAR.md')
-$taskDocumentationFiles = @('LICENSE', 'guides/USO.md', 'guides/Manual-de-uso-Vistora.pdf', 'assets/screenshots/executar-visita.png', 'assets/screenshots/historico.png')
+$taskGuideFiles = @(Get-ChildItem -LiteralPath (Join-Path $taskProjectRoot 'guides') -File | ForEach-Object { "guides/$($_.Name)" })
+if ($taskGuideFiles.Count -lt 2) {
+    throw 'A pasta guides deve conter a documentação em MD e em PDF.'
+}
+$taskDocumentationFiles = @('LICENSE') + $taskGuideFiles + @('assets/screenshots/executar-visita.png', 'assets/screenshots/historico.png')
 foreach ($taskDocumentationFile in $taskDocumentationFiles) {
     $taskDocumentationTarget = Join-Path $taskAppDir $taskDocumentationFile
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $taskDocumentationTarget) | Out-Null
