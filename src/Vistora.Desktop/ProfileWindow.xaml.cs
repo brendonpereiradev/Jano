@@ -40,7 +40,7 @@ public partial class ProfileWindow : Window
     }
 
     private void SelectedFloorChanged(object sender, SelectionChangedEventArgs e) => ResolutionBox.DataContext = FloorsGrid.SelectedItem;
-    private void AddFloor(object sender, RoutedEventArgs e)
+    internal void AddFloor(object sender, RoutedEventArgs e)
     {
         var floor = new Floor { Name = $"Pavimento {floors.Count + 1}", Resolution = $"Realizada visita preventiva Pavimento {floors.Count + 1}\n\n" };
         floors.Add(floor); FloorsGrid.SelectedItem = floor; FloorsGrid.ScrollIntoView(floor);
@@ -65,7 +65,7 @@ public partial class ProfileWindow : Window
     {
         foreach (var path in AttachmentsList.SelectedItems.Cast<string>().ToList()) attachments.Remove(path);
     }
-    private void Save(object sender, RoutedEventArgs e)
+    internal void Save(object sender, RoutedEventArgs e)
     {
         FloorsGrid.CommitEdit(DataGridEditingUnit.Cell, true); FloorsGrid.CommitEdit(DataGridEditingUnit.Row, true);
         ClearValidation(this, e);
@@ -113,5 +113,5 @@ public partial class ProfileWindow : Window
     {
         if (!saved && HasChanges && !ConfirmDiscard()) e.Cancel = true;
     }
-    private void Cancel(object sender, RoutedEventArgs e) => Close();
+    internal void Cancel(object sender, RoutedEventArgs e) => Close();
 }

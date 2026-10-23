@@ -14,5 +14,6 @@
     <ProjectReference Include="../Vistora.Core/Vistora.Core.csproj" />
     <ProjectReference Include="../Vistora.Infrastructure/Vistora.Infrastructure.csproj" />
     <ProjectReference Include="../Vistora.Automation.Edge/Vistora.Automation.Edge.csproj" />
+    <InternalsVisibleTo Include="Vistora.DesktopTests" />
   </ItemGroup>
 </Project>

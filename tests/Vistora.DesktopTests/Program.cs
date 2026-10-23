@@ -1,5 +1,4 @@
 using System.IO;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
@@ -12,10 +11,10 @@ using Vistora.Core;
 using Vistora.Desktop;
 using Vistora.Infrastructure;
 
+// As regras da tela principal são conferidas no MainViewModel; a janela só tem os testes de abertura e das capturas.
 internal static class Program
 {
     private static string? screenshotDirectory;
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     [STAThread]
     private static int Main(string[] args)
@@ -27,7 +26,7 @@ internal static class Program
         {
             ("Janela abre dentro da tela com controles de mover e redimensionar", StartupWindowFitsScreen),
             ("Abertura respeita a escala e permite aumentar o tamanho depois", StartupSizingAcrossScales),
-            ("Telas removem os avisos e ações solicitados", RemovedElements),
+            ("Janela mostra o estado do ViewModel e gera as capturas", WindowShowsViewModel),
             ("Várias visitas exigem escolha na tela principal", AmbiguousVisits),
             ("Perfil excluído continua permitindo retomada", DeletedProfile),
             ("Retomada preserva os dados originais e prioriza progresso", OriginalData),
@@ -42,6 +41,9 @@ internal static class Program
             ("Visita sem chamados pode ser descartada e libera nova visita", DiscardVisit),
             ("Histórico mostra o motivo da visita selecionada com a cor do estado", HistoryMessage),
             ("Perfil incompleto mostra os erros no painel, sem abrir janela", IncompleteProfile),
+            ("Verificar acesso informa sucesso, falha e interrupção no painel", AccessCheck),
+            ("Configurações recusam endereço inválido e salvam o corrigido", SettingsValidation),
+            ("Confirmação de exclusão usa Cancelar como padrão", DangerConfirmDefaults),
             ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation),
             ("Cancelar o editor com alterações pede confirmação", ProfileEditorUnsavedChanges)
         };
@@ -67,57 +69,67 @@ internal static class Program
     }
     private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static T Control<T>(Window window, string name) where T : class => (T)window.FindName(name);
+    private static void Select(MainViewModel model, VisitRun run) => model.SelectedPendingVisit = model.PendingVisits.Single(choice => choice.Run == run);
+    private static string RunFile(MainViewModel model, VisitRun run) => Path.Combine(model.Store.Root, "runs", run.Id + ".json");
+
+    private static MainWindow Open(MainViewModel model)
+    {
+        var window = new MainWindow(model) { ShowActivated = false, ShowInTaskbar = false };
+        window.Show(); window.UpdateLayout();
+        return window;
+    }
+
     private static void StartupWindowFitsScreen()
     {
         using var fixture = new Fixture([Profile()], []);
-        var window = fixture.Window;
-        window.ShowActivated = false; window.ShowInTaskbar = false;
-        window.Show(); window.UpdateLayout();
-        var handle = new WindowInteropHelper(window).Handle;
-        var monitor = new NativeMonitorInfo { Size = Marshal.SizeOf<NativeMonitorInfo>() };
-        Check(GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor) && GetWindowRect(handle, out var bounds), "Não foi possível conferir a área útil do monitor.");
-        Check(GetWindowRect(handle, out bounds) && bounds.Left >= monitor.Work.Left && bounds.Top >= monitor.Work.Top &&
-            bounds.Right <= monitor.Work.Right && bounds.Bottom <= monitor.Work.Bottom,
-            $"A janela ultrapassa a área útil: ({bounds.Left}, {bounds.Top}, {bounds.Right}, {bounds.Bottom}).");
-        var style = GetWindowLong(handle, -16);
-        const int controls = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000;
-        Check((style & controls) == controls && window.Icon is not null, "Barra de título, ícone ou controles de janela ausentes.");
-        var original = bounds;
-        window.Left += 8; window.Top += 8;
-        // Em telas menores que o tamanho mínimo da janela (como a do executor da CI), a abertura já usa o mínimo.
-        var shrink = Math.Min(12, window.Width - window.MinWidth);
-        if (shrink <= 0) Console.WriteLine($"Aviso: a janela abriu no tamanho mínimo ({window.Width:0}x{window.Height:0}); redução não conferida nesta tela.");
-        window.Width -= Math.Max(0, shrink);
-        window.UpdateLayout();
-        Check(GetWindowRect(handle, out bounds) && bounds.Left > original.Left && bounds.Top > original.Top,
-            "A janela não permite movimentação.");
-        Check(shrink <= 0 || bounds.Right - bounds.Left < original.Right - original.Left, "A janela não permite redução de tamanho.");
-        window.Width += 24; window.UpdateLayout();
-        Check(GetWindowRect(handle, out bounds) && bounds.Right - bounds.Left > original.Right - original.Left,
-            "A janela não permite aumentar o tamanho.");
-        var editor = new ProfileWindow(Profile()) { Owner = window, ShowActivated = false, ShowInTaskbar = false };
+        var window = new MainWindow(fixture.Model) { ShowActivated = false, ShowInTaskbar = false };
         try
         {
-            editor.Show(); editor.UpdateLayout();
-            var editorHandle = new WindowInteropHelper(editor).Handle;
-            Check(GetMonitorInfo(MonitorFromWindow(editorHandle, 2), ref monitor) && GetWindowRect(editorHandle, out var editorBounds) &&
-                editorBounds.Left >= monitor.Work.Left && editorBounds.Top >= monitor.Work.Top &&
-                editorBounds.Right <= monitor.Work.Right && editorBounds.Bottom <= monitor.Work.Bottom && editor.Icon is not null,
-                "A janela de perfil abre com a barra de título fora da tela.");
+            window.Show(); window.UpdateLayout();
+            var handle = new WindowInteropHelper(window).Handle;
+            var monitor = new NativeMonitorInfo { Size = Marshal.SizeOf<NativeMonitorInfo>() };
+            Check(GetMonitorInfo(MonitorFromWindow(handle, 2), ref monitor) && GetWindowRect(handle, out var bounds), "Não foi possível conferir a área útil do monitor.");
+            Check(GetWindowRect(handle, out bounds) && bounds.Left >= monitor.Work.Left && bounds.Top >= monitor.Work.Top &&
+                bounds.Right <= monitor.Work.Right && bounds.Bottom <= monitor.Work.Bottom,
+                $"A janela ultrapassa a área útil: ({bounds.Left}, {bounds.Top}, {bounds.Right}, {bounds.Bottom}).");
+            var style = GetWindowLong(handle, -16);
+            const int controls = 0x00C00000 | 0x00080000 | 0x00040000 | 0x00020000 | 0x00010000;
+            Check((style & controls) == controls && window.Icon is not null, "Barra de título, ícone ou controles de janela ausentes.");
+            var original = bounds;
+            window.Left += 8; window.Top += 8;
+            // Em telas menores que o tamanho mínimo da janela (como a do executor da CI), a abertura já usa o mínimo.
+            var shrink = Math.Min(12, window.Width - window.MinWidth);
+            if (shrink <= 0) Console.WriteLine($"Aviso: a janela abriu no tamanho mínimo ({window.Width:0}x{window.Height:0}); redução não conferida nesta tela.");
+            window.Width -= Math.Max(0, shrink);
+            window.UpdateLayout();
+            Check(GetWindowRect(handle, out bounds) && bounds.Left > original.Left && bounds.Top > original.Top,
+                "A janela não permite movimentação.");
+            Check(shrink <= 0 || bounds.Right - bounds.Left < original.Right - original.Left, "A janela não permite redução de tamanho.");
+            window.Width += 24; window.UpdateLayout();
+            Check(GetWindowRect(handle, out bounds) && bounds.Right - bounds.Left > original.Right - original.Left,
+                "A janela não permite aumentar o tamanho.");
+            var editor = new ProfileWindow(Profile()) { Owner = window, ShowActivated = false, ShowInTaskbar = false };
+            try
+            {
+                editor.Show(); editor.UpdateLayout();
+                var editorHandle = new WindowInteropHelper(editor).Handle;
+                Check(GetMonitorInfo(MonitorFromWindow(editorHandle, 2), ref monitor) && GetWindowRect(editorHandle, out var editorBounds) &&
+                    editorBounds.Left >= monitor.Work.Left && editorBounds.Top >= monitor.Work.Top &&
+                    editorBounds.Right <= monitor.Work.Right && editorBounds.Bottom <= monitor.Work.Bottom && editor.Icon is not null,
+                    "A janela de perfil abre com a barra de título fora da tela.");
+            }
+            finally { editor.Close(); }
         }
-        finally { editor.Close(); }
+        finally { window.Close(); }
     }
     private static void StartupSizingAcrossScales()
     {
-        var placement = typeof(MainWindow).Assembly.GetType("Vistora.Desktop.WindowPlacement");
-        var fit = placement?.GetMethod("FitToWorkArea", BindingFlags.Static | BindingFlags.NonPublic);
-        Check(fit is not null, "Ajuste da janela à área útil não implementado.");
         foreach (var scale in new[] { 1d, 1.25d, 1.5d, 2d })
         {
             using var fixture = new Fixture([Profile()], []);
-            var window = fixture.Window;
+            var window = new MainWindow(fixture.Model);
             var work = new Rect(-1920 / scale, -80 / scale, 1920 / scale, 1040 / scale);
-            fit!.Invoke(null, [window, work]);
+            WindowPlacement.FitToWorkArea(window, work);
             Check(work.Contains(new Rect(window.Left, window.Top, window.Width, window.Height)),
                 $"Abertura fora da área útil em {scale * 100}%.");
             Check(window.MinWidth <= window.Width && window.MinHeight <= window.Height,
@@ -127,6 +139,7 @@ internal static class Program
             Check(window.Width == width + 24 && window.Height == height + 24 &&
                 double.IsPositiveInfinity(window.MaxWidth) && double.IsPositiveInfinity(window.MaxHeight),
                 "O ajuste inicial criou uma restrição permanente de tamanho.");
+            window.Close();
         }
     }
     [StructLayout(LayoutKind.Sequential)]
@@ -143,61 +156,89 @@ internal static class Program
     private static extern bool GetWindowRect(nint window, out NativeRect bounds);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(nint window, int index);
-    private static object? Invoke(MainWindow window, string method, params object?[] args) => typeof(MainWindow).GetMethod(method, PrivateInstance)!.Invoke(window, args);
-    private static object Choice(MainWindow window, VisitRun run) => Control<ComboBox>(window, "PendingVisitPicker").Items.Cast<object>()
-        .Single(choice => ReferenceEquals(choice.GetType().GetProperty("Run")!.GetValue(choice), run));
-    private static VisitRun? SelectedRun(MainWindow window)
-    {
-        var choice = Control<ComboBox>(window, "PendingVisitPicker").SelectedItem;
-        return choice?.GetType().GetProperty("Run")!.GetValue(choice) as VisitRun;
-    }
 
-    private static void RemovedElements()
+    // Um percurso pelas quatro páginas: confere que os controles acompanham o ViewModel e salva as capturas pedidas.
+    private static void WindowShowsViewModel()
     {
-        var profile = Profile();
-        using var fixture = new Fixture([profile], []); var window = fixture.Window;
-        foreach (var name in new[] { "DuplicateButton", "ResumeButton", "LinkButton", "ClosingTeamSummary", "EditActiveButton", "ProfileSummary", "ResolutionPreview", "TimeoutBox", "DetailedLogsBox" })
-            Check(window.FindName(name) is null, $"Controle removido ainda existe: {name}.");
-        var texts = Descendants(window).OfType<TextBlock>().Select(text => text.Text).ToList();
-        Check(!texts.Any(text => text.Contains("Microsoft Edge") || text.Contains("salvos neste") || text.Contains("Equipe de fechamento:") || text.Contains("Sobre o login") || text.Contains("Texto de fechamento") || text.Contains("Tempo de espera") || text.Contains("Ative os detalhes")), "Aviso removido continua na interface.");
-        var buttons = Descendants(window).OfType<Button>().Select(button => button.Content as string).ToList();
-        Check(!buttons.Intersect(new[] { "Duplicar", "Retomar execução", "Vincular chamado", "Abrir chamado no Jira", "Abrir diagnóstico", "Editar perfil", "Abrir pasta de dados", "Exportar log do aplicativo" }).Any(), "Ação removida continua na interface.");
-        var pages = Control<TabControl>(window, "Pages").Items.Cast<TabItem>().ToList();
-        Check(buttons.Count(text => text == "Exportar log") == 1 && Descendants(pages[2]).OfType<Button>().Any(button => button.Content.Equals("Exportar log")), "Exportação de logs não ficou somente no Histórico.");
-        Check(Descendants(pages[3]).OfType<Button>().Single().Content.Equals("Salvar configurações"), "Configurações contém ações removidas.");
-        Screenshot(window, "executar");
-        foreach (var (page, name) in new[] { (1, "perfis"), (2, "historico"), (3, "configuracoes") })
-        { Invoke(window, "SelectPage", page); Screenshot(window, name); }
-        var editor = new ProfileWindow(profile);
-        Check(!Descendants(editor).OfType<TextBlock>().Any(text => text.Text.Contains("salvos neste computador")), "Aviso continua no editor de perfil.");
+        var first = Profile(); var second = Profile("Unidade B"); var run = Run(first);
+        run.State = RunState.Failed; run.Message = "O campo “Andar” não corresponde a Pavimento 1.";
+        var completed = Run(second); completed.State = RunState.Completed; completed.Floors[0].Stage = FloorStage.Closed; completed.Message = "Visita concluída.";
+        using var fixture = new Fixture([first, second], [run, completed]); var model = fixture.Model;
+        var window = Open(model);
+        Brush Color(string key) => (Brush)Application.Current.Resources[key];
+        try
+        {
+            var status = Control<TextBlock>(window, "RunStatus"); var execute = Control<Button>(window, "ExecuteButton");
+            Check(status.Visibility == Visibility.Visible && status.Text == run.Message && status.Foreground == Color("Red"),
+                "O painel de status não mostrou o motivo da falha em vermelho.");
+            Check(Equals(Control<ComboBox>(window, "PendingVisitPicker").SelectedItem, model.SelectedPendingVisit) && model.SelectedPendingVisit is not null &&
+                Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Collapsed &&
+                execute.Content.Equals("Retomar visita preventiva") && execute.IsEnabled && Control<TextBlock>(window, "RunCount").Text == "0 de 1 fechados",
+                "A tela não acompanhou a visita pendente escolhida.");
+            Screenshot(window, "status-falha");
+            Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
+            Check(model.ActiveProfile == second && model.SelectedRun is null && Control<ComboBox>(window, "PendingVisitPicker").SelectedItem is null &&
+                Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Visible && Control<Grid>(window, "RunStatusRow").Visibility == Visibility.Collapsed &&
+                execute.Content.Equals("Executar visita preventiva"), "Trocar o perfil na tela não atualizou o ViewModel.");
+            Screenshot(window, "executar");
+            Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = model.PendingVisits.Single();
+            Check(model.SelectedRun == run && model.ActiveProfile == first, "Escolher a visita pendente na tela não chegou ao ViewModel.");
+            model.State = ScreenState.Running;
+            var stop = Control<Button>(window, "StopButton");
+            Check(stop.Visibility == Visibility.Visible && stop.IsEnabled && stop.Style == Application.Current.Resources["Danger"] &&
+                !execute.IsEnabled && !Control<ComboBox>(window, "PendingVisitPicker").IsEnabled, "A execução não bloqueou a tela nem destacou Parar.");
+            Screenshot(window, "executando");
+            model.Stop();
+            Check(stop.Content.Equals("Parando…") && !stop.IsEnabled && status.Foreground == Color("Muted"), "Parar não apareceu na tela.");
+            Screenshot(window, "parando");
+            model.State = ScreenState.Idle;
+            Check(stop.Visibility == Visibility.Collapsed && execute.IsEnabled, "A tela não foi liberada depois da execução.");
+
+            window.SelectPage(1);
+            Check(Control<DataGrid>(window, "ProfilesGrid").Items.Count == 2, "A lista de perfis não acompanhou o ViewModel.");
+            Screenshot(window, "perfis");
+            window.SelectPage(2);
+            var history = Control<DataGrid>(window, "HistoryGrid"); var message = Control<TextBlock>(window, "HistoryRunMessage");
+            Check(history.SelectedItem == run && message.Text == run.Message && message.Foreground == Color("Red"), "O Histórico não mostrou a visita escolhida.");
+            Screenshot(window, "historico");
+            history.SelectedItem = completed;
+            Check(model.SelectedHistoryRun == completed && message.Foreground == Color("Teal") &&
+                Control<DataGrid>(window, "RunFloorGrid").Items.Cast<FloorRun>().Single() == completed.Floors[0], "Escolher no Histórico não chegou ao ViewModel.");
+            window.SelectPage(3);
+            var jira = Control<TextBox>(window, "JiraUrlBox");
+            Check(jira.Text == model.JiraUrl, "As configurações não apareceram na tela.");
+            jira.Text = "https://outro.example.com";
+            Check(model.JiraUrl == "https://outro.example.com", "Editar o endereço não chegou ao ViewModel.");
+            Screenshot(window, "configuracoes");
+            window.SelectPage(0);
+            window.Width = window.MinWidth; window.Height = window.MinHeight;
+            Screenshot(window, "executar-tamanho-minimo");
+        }
+        finally { window.Close(); }
+        var editor = new ProfileWindow(first);
         Screenshot(editor, "editar-perfil"); editor.Close();
     }
 
     private static void AmbiguousVisits()
     {
         var profile = Profile(); var first = Run(profile); var second = Run(profile, "SD-1002");
-        using var fixture = new Fixture([profile], [first, second]); var window = fixture.Window;
-        Check(SelectedRun(window) is null && !Control<Button>(window, "ExecuteButton").IsEnabled, "Escolheu uma visita ambígua automaticamente.");
-        Screenshot(window, "pendencias");
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, second);
-        Check(SelectedRun(window) == second && Control<Button>(window, "ExecuteButton").IsEnabled, "Seleção explícita não habilitou a retomada.");
-        Check(VisitRunSelection.ForResume([first, second], SelectedRun(window)!) == second, "A seleção foi substituída.");
-        Screenshot(window, "retomar");
-        window.Width = window.MinWidth; window.Height = window.MinHeight;
-        Screenshot(window, "retomar-tamanho-minimo");
+        using var fixture = new Fixture([profile], [first, second]); var model = fixture.Model;
+        Check(model.SelectedRun is null && !model.ExecuteCommand.CanExecute(null), "Escolheu uma visita ambígua automaticamente.");
+        Select(model, second);
+        Check(model.SelectedRun == second && model.ExecuteCommand.CanExecute(null), "Seleção explícita não habilitou a retomada.");
+        Check(VisitRunSelection.ForResume([first, second], model.SelectedRun!) == second, "A seleção foi substituída.");
     }
 
     private static void DeletedProfile()
     {
         var run = Run(Profile("Unidade excluída")); var before = JsonSerializer.Serialize(run, Serialization.Options);
-        using var fixture = new Fixture([], [run]); var window = fixture.Window;
-        var choice = Choice(window, run);
-        Check(choice.GetType().GetProperty("Label")!.GetValue(choice)!.ToString()!.Contains("perfil excluído"), "Perfil excluído não foi identificado.");
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = choice;
-        Check(Control<ComboBox>(window, "ProfilePicker").SelectedItem is null && Control<Button>(window, "ExecuteButton").IsEnabled, "Retomada exigiu um perfil cadastrado.");
-        Check(Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Collapsed, "Dados originais permitiram edição.");
+        using var fixture = new Fixture([], [run]); var model = fixture.Model;
+        var choice = model.PendingVisits.Single();
+        Check(choice.Label.Contains("perfil excluído"), "Perfil excluído não foi identificado.");
+        model.SelectedPendingVisit = choice;
+        Check(model.ActiveProfile is null && model.ExecuteCommand.CanExecute(null), "Retomada exigiu um perfil cadastrado.");
+        Check(!model.CanChooseFloors, "Dados originais permitiram edição.");
         Check(before == JsonSerializer.Serialize(run, Serialization.Options), "Seleção alterou a execução salva.");
-        Screenshot(window, "perfil-excluido");
     }
 
     private static void OriginalData()
@@ -206,216 +247,250 @@ internal static class Program
         var empty = ProfileValidation.CreateRun(profile, new AppSettings()); empty.CreatedAt = run.CreatedAt.AddHours(1);
         var before = JsonSerializer.Serialize(run, Serialization.Options);
         profile.Unit = "Unidade alterada"; profile.Floors[0].Resolution = "Texto alterado";
-        using var fixture = new Fixture([profile], [empty, run]); var window = fixture.Window;
-        Check(SelectedRun(window) == run, "Uma tentativa vazia ocultou a visita com chamados.");
+        using var fixture = new Fixture([profile], [empty, run]); var model = fixture.Model;
+        Check(model.SelectedRun == run, "Uma tentativa vazia ocultou a visita com chamados.");
         Check(before == JsonSerializer.Serialize(run, Serialization.Options), "Seleção alterou os dados originais da retomada.");
-        Check(ReferenceEquals(Control<DataGrid>(window, "FloorGrid").Items[0], run.Floors[0].Floor), "Mostrou pavimentos de outra visita.");
+        Check(ReferenceEquals(model.Floors![0], run.Floors[0].Floor), "Mostrou pavimentos de outra visita.");
     }
 
     private static void ProfileAndBusy()
     {
         var first = Profile(); var second = Profile("Unidade B"); var run = Run(first);
-        using var fixture = new Fixture([first, second], [run]); var window = fixture.Window;
-        Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
-        Check(SelectedRun(window) is null && Control<Button>(window, "ExecuteButton").Content.Equals("Executar visita preventiva"), "Trocar de perfil manteve uma visita de outra unidade selecionada.");
-        Check(Control<StackPanel>(window, "PendingVisitPanel").Visibility == Visibility.Visible, "Pendências de outros perfis ficaram inacessíveis.");
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, run);
-        Check(Control<ComboBox>(window, "ProfilePicker").SelectedItem == first, "Retomada não identificou o perfil selecionado.");
-        Invoke(window, "SetBusy", true);
-        Check(!Control<ComboBox>(window, "PendingVisitPicker").IsEnabled && !Control<Button>(window, "ExecuteButton").IsEnabled, "Execução permitiu trocar a visita em andamento.");
-        Check(!Control<Button>(window, "ConnectButton").IsEnabled && Control<Button>(window, "StopButton").IsEnabled && Control<Button>(window, "StopButton").Visibility == Visibility.Visible, "O botão de parar ficou indisponível junto com as outras ações durante a execução.");
-        Screenshot(window, "executando");
-        Invoke(window, "SetBusy", false);
-        Check(Control<Button>(window, "StopButton").Visibility == Visibility.Collapsed && !Control<Button>(window, "StopButton").IsEnabled, "O botão de parar permaneceu disponível depois da execução.");
-        Check(SelectedRun(window) == run && Control<Button>(window, "ExecuteButton").IsEnabled && Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Collapsed, "Desbloquear a tela perdeu a retomada ou permitiu editar seus dados.");
+        using var fixture = new Fixture([first, second], [run]); var model = fixture.Model;
+        model.ActiveProfile = second;
+        Check(model.SelectedRun is null && model.ExecuteLabel == "Executar visita preventiva", "Trocar de perfil manteve uma visita de outra unidade selecionada.");
+        Check(model.HasPendingVisits, "Pendências de outros perfis ficaram inacessíveis.");
+        Select(model, run);
+        Check(model.ActiveProfile == first, "Retomada não identificou o perfil selecionado.");
+        model.State = ScreenState.Running;
+        Check(!model.IsUnlocked && !model.ExecuteCommand.CanExecute(null), "Execução permitiu trocar a visita em andamento.");
+        Check(!model.CheckAccessCommand.CanExecute(null) && model.StopCommand.CanExecute(null) && model.IsStopVisible,
+            "O botão de parar ficou indisponível junto com as outras ações durante a execução.");
+        model.State = ScreenState.Idle;
+        Check(!model.IsStopVisible && !model.StopCommand.CanExecute(null), "O botão de parar permaneceu disponível depois da execução.");
+        Check(model.SelectedRun == run && model.ExecuteCommand.CanExecute(null) && !model.CanChooseFloors, "Desbloquear a tela perdeu a retomada ou permitiu editar seus dados.");
     }
 
     private static void CompletedVisit()
     {
         var profile = Profile(); var run = Run(profile);
-        using var fixture = new Fixture([profile], [run]); var window = fixture.Window;
-        run.State = RunState.Completed; Invoke(window, "RefreshPendingVisits", null, false);
-        Check(SelectedRun(window) is null && Control<StackPanel>(window, "PendingVisitPanel").Visibility == Visibility.Collapsed, "Visita concluída continuou disponível para retomada.");
-        Check(Control<Button>(window, "ExecuteButton").IsEnabled, "Conclusão impediu uma nova visita.");
-        Check(Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Visible, "Nova visita não permitiu selecionar pavimentos.");
+        using var fixture = new Fixture([profile], [run]); var model = fixture.Model;
+        run.State = RunState.Completed; model.RefreshPendingVisits();
+        Check(model.SelectedRun is null && !model.HasPendingVisits, "Visita concluída continuou disponível para retomada.");
+        Check(model.ExecuteCommand.CanExecute(null), "Conclusão impediu uma nova visita.");
+        Check(model.CanChooseFloors, "Nova visita não permitiu selecionar pavimentos.");
     }
 
     private static void HistoryIsReadOnly()
     {
         var profile = Profile(); var first = Run(profile); var second = Run(profile, "SD-1002");
-        using var fixture = new Fixture([profile], [first, second]); var window = fixture.Window;
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, first);
+        using var fixture = new Fixture([profile], [first, second]); var model = fixture.Model;
+        Select(model, first);
         var before = JsonSerializer.Serialize(new[] { first, second }, Serialization.Options);
-        Invoke(window, "SelectPage", 2); Control<DataGrid>(window, "HistoryGrid").SelectedItem = second;
-        var history = (TabItem)Control<TabControl>(window, "Pages").Items[2];
-        Check(Descendants(history).OfType<Button>().Select(button => button.Content).SequenceEqual(new[] { "Exportar log", "Limpar histórico e pendências" }), "Histórico contém ações inesperadas.");
-        Check(SelectedRun(window) == first && before == JsonSerializer.Serialize(new[] { first, second }, Serialization.Options), "Consulta ao histórico alterou a retomada.");
-        Screenshot(window, "historico-com-visitas");
-        window.Width = window.MinWidth; window.Height = window.MinHeight;
-        Screenshot(window, "historico-tamanho-minimo");
+        model.SelectedHistoryRun = second;
+        Check(model.SelectedRun == first && before == JsonSerializer.Serialize(new[] { first, second }, Serialization.Options), "Consulta ao histórico alterou a retomada.");
     }
-
-    private static void SetField(MainWindow window, string name, object value) => typeof(MainWindow).GetField(name, PrivateInstance)!.SetValue(window, value);
-    private static void Clean(MainWindow window, Func<string, bool> confirm) => Await((Task)Invoke(window, "ClearHistoryWithConfirmationAsync", confirm)!);
-    private static LocalStore Store(MainWindow window) => (LocalStore)typeof(MainWindow).GetField("store", PrivateInstance)!.GetValue(window)!;
 
     private static void CancelHistoryCleanup()
     {
         var profile = Profile(); var run = Run(profile);
-        using var fixture = new Fixture([profile], [run], allowCleanup: true); var window = fixture.Window; var store = Store(window);
-        Await(store.SaveRunAsync(run)); var before = File.ReadAllBytes(Path.Combine(store.Root, "runs", run.Id + ".json"));
-        string? message = null; Clean(window, text => { message = text; return false; });
+        using var fixture = new Fixture([profile], [run], preview: false); var model = fixture.Model;
+        Await(model.Store.SaveRunAsync(run)); var before = File.ReadAllBytes(RunFile(model, run));
+        string? message = null; fixture.Dialogs.ConfirmDangerAnswer = text => { message = text; return false; };
+        Await(model.ClearHistoryAsync());
         Check(message is not null && message.Contains("1 visita(s)") && message.Contains("1 pendente(s)") && message.Contains("logs e capturas") && message.Contains("Jira"), "Confirmação omitiu o alcance da exclusão.");
-        Check(before.SequenceEqual(File.ReadAllBytes(Path.Combine(store.Root, "runs", run.Id + ".json"))) && SelectedRun(window) == run, "Cancelar alterou os dados.");
-        var dialog = new DangerConfirmWindow("Limpar histórico e pendências", message!, "Limpar tudo"); var buttons = Descendants(dialog).OfType<Button>().ToArray();
-        Check(buttons.Single(b => b.IsDefault).Content.Equals("Cancelar") && buttons.Single(b => b.IsCancel).Content.Equals("Cancelar"), "Confirmação não usa Cancelar por padrão.");
-        Screenshot(dialog, "confirmar-limpeza");
-        dialog.Close();
+        Check(before.SequenceEqual(File.ReadAllBytes(RunFile(model, run))) && model.SelectedRun == run, "Cancelar alterou os dados.");
     }
 
     private static void ClearHistory()
     {
         var profile = Profile(); var deleted = Run(Profile("Perfil excluído")); var completed = Run(profile); completed.State = RunState.Completed;
-        using var fixture = new Fixture([profile], [deleted, completed], allowCleanup: true); var window = fixture.Window; var store = Store(window);
-        Await(store.SaveRunAsync(deleted)); Await(store.SaveRunAsync(completed));
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, deleted);
-        Clean(window, _ => true);
-        Check(Control<DataGrid>(window, "HistoryGrid").Items.Count == 0 && Control<DataGrid>(window, "RunFloorGrid").Items.Count == 0 && SelectedRun(window) is null, "Limpeza deixou dados nas tabelas.");
-        Check(Control<StackPanel>(window, "PendingVisitPanel").Visibility == Visibility.Collapsed && Control<ProgressBar>(window, "RunProgress").Value == 0, "Limpeza deixou pendências ou progresso.");
-        Check(Control<ComboBox>(window, "ProfilePicker").SelectedItem == profile && Control<Button>(window, "ExecuteButton").IsEnabled && Control<Button>(window, "ExecuteButton").Content.Equals("Executar visita preventiva"), "Limpeza não restaurou o perfil e a nova execução.");
-        Check(Control<Button>(window, "ClearHistoryButton").IsEnabled && Control<TextBlock>(window, "HistoryStatus").Text.Contains("removidos"), "Limpeza não informou sucesso ou liberou a tela.");
+        using var fixture = new Fixture([profile], [deleted, completed], preview: false); var model = fixture.Model;
+        Await(model.Store.SaveRunAsync(deleted)); Await(model.Store.SaveRunAsync(completed));
+        Select(model, deleted);
+        fixture.Dialogs.ConfirmDangerAnswer = _ => true;
+        Await(model.ClearHistoryAsync());
+        Check(model.History.Count == 0 && model.HistoryFloors is null && model.SelectedRun is null, "Limpeza deixou dados nas tabelas.");
+        Check(!model.HasPendingVisits && model.Progress == 0, "Limpeza deixou pendências ou progresso.");
+        Check(model.ActiveProfile == profile && model.ExecuteCommand.CanExecute(null) && model.ExecuteLabel == "Executar visita preventiva", "Limpeza não restaurou o perfil e a nova execução.");
+        Check(model.ClearHistoryCommand.CanExecute(null) && model.HistoryStatus.Contains("removidos") && model.HistoryStatusTone == StatusTone.Teal, "Limpeza não informou sucesso ou liberou a tela.");
     }
 
     private static void CleanupGuards()
     {
         var profile = Profile(); var run = Run(profile); var confirmations = 0;
-        using var fixture = new Fixture([profile], [run], allowCleanup: true); var window = fixture.Window;
-        foreach (var field in new[] { "loading", "cleaningHistory", "exportingLog", "preview" })
+        using var fixture = new Fixture([profile], [run], preview: false); var model = fixture.Model;
+        fixture.Dialogs.ConfirmDangerAnswer = _ => { confirmations++; return true; };
+        foreach (var (name, block, release) in new (string, Action, Action)[]
         {
-            SetField(window, field, true); Invoke(window, "UpdateInteraction");
-            Check(!Control<Button>(window, "ClearHistoryButton").IsEnabled, "Botão de limpeza habilitado durante " + field);
-            Clean(window, _ => { confirmations++; return true; });
-            if (field == "cleaningHistory")
-                Check(!Control<Button>(window, "ExecuteButton").IsEnabled && !Control<Button>(window, "ExportLogButton").IsEnabled && Control<Button>(window, "StopButton").Visibility == Visibility.Collapsed, "Limpeza não bloqueou ações ou exibiu Parar.");
-            SetField(window, field, false);
+            ("carregamento", () => model.State = ScreenState.Loading, () => model.State = ScreenState.Idle),
+            ("limpeza", () => model.State = ScreenState.Cleaning, () => model.State = ScreenState.Idle),
+            ("execução", () => model.State = ScreenState.Running, () => model.State = ScreenState.Idle),
+            ("exportação", () => model.IsExporting = true, () => model.IsExporting = false),
+            ("prévia", () => model.IsPreview = true, () => model.IsPreview = false)
+        })
+        {
+            block();
+            Check(!model.ClearHistoryCommand.CanExecute(null), "Limpeza habilitada durante " + name);
+            Await(model.ClearHistoryAsync());
+            if (name == "limpeza")
+                Check(!model.ExecuteCommand.CanExecute(null) && !model.ExportLogCommand.CanExecute(null) && !model.IsStopVisible, "Limpeza não bloqueou ações ou exibiu Parar.");
+            release();
         }
-        Invoke(window, "SetBusy", true); Clean(window, _ => { confirmations++; return true; });
-        Check(!Control<Button>(window, "ClearHistoryButton").IsEnabled && confirmations == 0, "Limpeza aceitou uma operação bloqueada.");
-        Invoke(window, "SetBusy", false);
-        Check(Control<Button>(window, "ClearHistoryButton").IsEnabled && SelectedRun(window) == run, "Bloqueio alterou a seleção ou não liberou a limpeza.");
+        Check(confirmations == 0, "Limpeza aceitou uma operação bloqueada.");
+        Check(model.ClearHistoryCommand.CanExecute(null) && model.SelectedRun == run, "Bloqueio alterou a seleção ou não liberou a limpeza.");
     }
 
     private static void PartialHistoryCleanup()
     {
         var profile = Profile(); var first = Run(profile); first.Id = "00000000000000000000000000000001";
         var second = Run(profile, "SD-1002"); second.Id = "00000000000000000000000000000002";
-        using var fixture = new Fixture([profile], [first, second], allowCleanup: true); var window = fixture.Window; var store = Store(window);
-        Await(store.SaveRunAsync(first)); Await(store.SaveRunAsync(second));
-        using (var locked = File.Open(Path.Combine(store.Root, "runs", second.Id + ".json"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        using var fixture = new Fixture([profile], [first, second], preview: false); var model = fixture.Model;
+        Await(model.Store.SaveRunAsync(first)); Await(model.Store.SaveRunAsync(second));
+        fixture.Dialogs.ConfirmDangerAnswer = _ => true;
+        using (File.Open(RunFile(model, second), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
-            Clean(window, _ => true);
-            var remaining = Control<DataGrid>(window, "HistoryGrid").Items.Cast<VisitRun>().ToArray();
-            Check(Control<TextBlock>(window, "HistoryStatus").Text.Contains("incompleta") && remaining.Length == 1 && remaining[0].Id == second.Id, "Falha parcial declarou sucesso ou mostrou registros incorretos.");
+            Await(model.ClearHistoryAsync());
+            Check(model.HistoryStatus.Contains("incompleta") && model.HistoryStatusTone == StatusTone.Red && model.History.Count == 1 && model.History[0].Id == second.Id,
+                "Falha parcial declarou sucesso ou mostrou registros incorretos.");
         }
-        Clean(window, _ => true);
-        Check(Control<DataGrid>(window, "HistoryGrid").Items.Count == 0, "Falha parcial impediu nova tentativa.");
+        Await(model.ClearHistoryAsync());
+        Check(model.History.Count == 0, "Falha parcial impediu nova tentativa.");
     }
 
     private static void RunStatusPanel()
     {
         var first = Profile(); var second = Profile("Unidade B"); var run = Run(first);
         run.State = RunState.Failed; run.Message = "O campo “Andar” não corresponde a Pavimento 1.";
-        using var fixture = new Fixture([first, second], [run]); var window = fixture.Window;
-        var status = Control<TextBlock>(window, "RunStatus");
-        Brush Color(string key) => (Brush)Application.Current.Resources[key];
-        Check(SelectedRun(window) == run && status.Visibility == Visibility.Visible && status.Text == run.Message && status.Foreground == Color("Red"),
+        using var fixture = new Fixture([first, second], [run]); var model = fixture.Model;
+        Check(model.SelectedRun == run && model.HasStatus && model.Status == run.Message && model.StatusTone == StatusTone.Red,
             "O motivo da falha da visita pendente não apareceu em vermelho.");
-        Screenshot(window, "status-falha");
         run.State = RunState.Running; run.Message = "Faça login no Jira na janela do Edge. A execução continuará após o login.";
-        Invoke(window, "ShowProgress", run);
-        Check(status.Text == run.Message && status.Foreground == Color("Ink"), "O progresso da execução não atualizou o status.");
-        var count = Control<TextBlock>(window, "RunCount");
-        Check(count.Text == "0 de 1 fechados", "A contagem de pavimentos fechados não apareceu no painel.");
-        run.Floors[0].Stage = FloorStage.Closed; Invoke(window, "ShowProgress", run);
-        Check(count.Text == "1 de 1 fechados", "A contagem não acompanhou o progresso.");
+        model.ShowProgress(run);
+        Check(model.Status == run.Message && model.StatusTone == StatusTone.Ink, "O progresso da execução não atualizou o status.");
+        Check(model.ProgressCount == "0 de 1 fechados", "A contagem de pavimentos fechados não apareceu no painel.");
+        run.Floors[0].Stage = FloorStage.Closed; model.ShowProgress(run);
+        Check(model.ProgressCount == "1 de 1 fechados" && model.Progress == 100, "A contagem não acompanhou o progresso.");
         run.Floors[0].Stage = FloorStage.Created;
         run.State = RunState.Interrupted; run.Message = "Execução interrompida. O progresso foi salvo.";
-        Invoke(window, "ShowProgress", run);
-        Check(status.Text == run.Message && status.Foreground == Color("Amber"), "A interrupção não foi destacada.");
-        Invoke(window, "SetBusy", true);
-        var stop = Control<Button>(window, "StopButton");
-        Check(stop.Style == Application.Current.Resources["Danger"] && stop.IsEnabled, "O botão de parar não foi destacado.");
-        Invoke(window, "Stop", null, null);
-        Check(status.Text.StartsWith("Parando") && status.Foreground == Color("Muted"), "Parar não informou a interrupção segura.");
-        Invoke(window, "UpdateInteraction");
-        Check(stop.Content.Equals("Parando…") && !stop.IsEnabled && stop.Visibility == Visibility.Visible, "O botão de parar não indicou a interrupção em andamento.");
-        Screenshot(window, "parando");
-        Invoke(window, "SetBusy", false);
-        Check(stop.Content.Equals("Parar execução") && stop.Visibility == Visibility.Collapsed, "O botão de parar não voltou ao estado inicial.");
-        Control<ComboBox>(window, "ProfilePicker").SelectedItem = second;
-        Check(SelectedRun(window) is null && status.Visibility == Visibility.Collapsed && count.Text.Length == 0 &&
-            Control<Grid>(window, "RunStatusRow").Visibility == Visibility.Collapsed, "O status de outra visita continuou visível.");
+        model.ShowProgress(run);
+        Check(model.Status == run.Message && model.StatusTone == StatusTone.Amber, "A interrupção não foi destacada.");
+        model.State = ScreenState.Running;
+        Check(model.StopCommand.CanExecute(null) && model.StopLabel == "Parar execução", "O botão de parar não ficou disponível.");
+        model.Stop();
+        Check(model.Status.StartsWith("Parando") && model.StatusTone == StatusTone.Muted, "Parar não informou a interrupção segura.");
+        Check(model.StopLabel == "Parando…" && !model.StopCommand.CanExecute(null) && model.IsStopVisible, "O botão de parar não indicou a interrupção em andamento.");
+        model.State = ScreenState.Idle;
+        Check(model.StopLabel == "Parar execução" && !model.IsStopVisible, "O botão de parar não voltou ao estado inicial.");
+        model.ActiveProfile = second;
+        Check(model.SelectedRun is null && !model.HasStatus && model.ProgressCount.Length == 0 && !model.HasStatusRow, "O status de outra visita continuou visível.");
     }
 
-    private static void Discard(MainWindow window, Func<string, bool> confirm) => Await((Task)Invoke(window, "DiscardWithConfirmationAsync", confirm)!);
     private static void DiscardVisit()
     {
         var profile = Profile(); var other = Profile("Unidade B");
         var empty = ProfileValidation.CreateRun(profile, new AppSettings()); empty.State = RunState.Failed; empty.Message = "O formulário não carregou.";
         var withIssue = Run(other);
-        using var fixture = new Fixture([profile, other], [empty, withIssue], allowCleanup: true); var window = fixture.Window; var store = Store(window);
-        Await(store.SaveRunAsync(empty)); Await(store.SaveRunAsync(withIssue));
-        var discard = Control<Button>(window, "DiscardButton");
-        Check(SelectedRun(window) == empty && discard.Visibility == Visibility.Visible, "A visita sem chamados não ofereceu o descarte.");
-        Screenshot(window, "descartar-visita");
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, withIssue);
-        Check(discard.Visibility == Visibility.Collapsed, "A visita com chamado ofereceu o descarte.");
-        Discard(window, _ => throw new Exception("Pediu confirmação para uma visita com chamado."));
-        Control<ComboBox>(window, "PendingVisitPicker").SelectedItem = Choice(window, empty);
-        Invoke(window, "SetBusy", true);
-        Check(!discard.IsEnabled, "O descarte ficou disponível durante a execução.");
-        Invoke(window, "SetBusy", false);
-        string? message = null; Discard(window, text => { message = text; return false; });
-        Check(message is not null && message.Contains("Nenhum chamado") && message.Contains("não pode ser desfeita") && SelectedRun(window) == empty &&
-            File.Exists(Path.Combine(store.Root, "runs", empty.Id + ".json")), "Cancelar o descarte alterou a visita ou a confirmação omitiu o alcance.");
-        Discard(window, _ => true);
-        Check(!File.Exists(Path.Combine(store.Root, "runs", empty.Id + ".json")) && File.Exists(Path.Combine(store.Root, "runs", withIssue.Id + ".json")), "O descarte não apagou somente a visita escolhida.");
-        Check(Control<DataGrid>(window, "HistoryGrid").Items.Cast<VisitRun>().Single() == withIssue, "O histórico manteve a visita descartada.");
-        Check(SelectedRun(window) is null && Control<ComboBox>(window, "ProfilePicker").SelectedItem == profile && discard.Visibility == Visibility.Collapsed &&
-            Control<Button>(window, "ExecuteButton").IsEnabled && Control<Button>(window, "ExecuteButton").Content.Equals("Executar visita preventiva"), "O perfil não voltou a permitir uma nova visita.");
-        Check(Control<TextBlock>(window, "RunStatus").Text.Contains("descartada"), "O descarte não foi informado no painel de status.");
+        using var fixture = new Fixture([profile, other], [empty, withIssue], preview: false); var model = fixture.Model;
+        Await(model.Store.SaveRunAsync(empty)); Await(model.Store.SaveRunAsync(withIssue));
+        Check(model.SelectedRun == empty && model.CanDiscard, "A visita sem chamados não ofereceu o descarte.");
+        Select(model, withIssue);
+        Check(!model.CanDiscard, "A visita com chamado ofereceu o descarte.");
+        fixture.Dialogs.ConfirmDangerAnswer = _ => throw new Exception("Pediu confirmação para uma visita com chamado.");
+        Await(model.DiscardAsync());
+        Select(model, empty);
+        model.State = ScreenState.Running;
+        Check(!model.DiscardCommand.CanExecute(null), "O descarte ficou disponível durante a execução.");
+        model.State = ScreenState.Idle;
+        string? message = null; fixture.Dialogs.ConfirmDangerAnswer = text => { message = text; return false; };
+        Await(model.DiscardAsync());
+        Check(message is not null && message.Contains("Nenhum chamado") && message.Contains("não pode ser desfeita") && model.SelectedRun == empty &&
+            File.Exists(RunFile(model, empty)), "Cancelar o descarte alterou a visita ou a confirmação omitiu o alcance.");
+        fixture.Dialogs.ConfirmDangerAnswer = _ => true;
+        Await(model.DiscardAsync());
+        Check(!File.Exists(RunFile(model, empty)) && File.Exists(RunFile(model, withIssue)), "O descarte não apagou somente a visita escolhida.");
+        Check(model.History.Single() == withIssue, "O histórico manteve a visita descartada.");
+        Check(model.SelectedRun is null && model.ActiveProfile == profile && !model.CanDiscard &&
+            model.ExecuteCommand.CanExecute(null) && model.ExecuteLabel == "Executar visita preventiva", "O perfil não voltou a permitir uma nova visita.");
+        Check(model.Status.Contains("descartada") && model.StatusTone == StatusTone.Teal, "O descarte não foi informado no painel de status.");
     }
 
     private static void HistoryMessage()
     {
         var profile = Profile(); var failed = Run(profile); failed.State = RunState.Failed; failed.Message = "O Jira recusou o envio do formulário.";
         var completed = Run(Profile("Unidade B")); completed.State = RunState.Completed; completed.Message = "Visita concluída.";
-        using var fixture = new Fixture([profile], [failed, completed]); var window = fixture.Window;
-        Invoke(window, "SelectPage", 2);
-        var message = Control<TextBlock>(window, "HistoryRunMessage");
-        Control<DataGrid>(window, "HistoryGrid").SelectedItem = failed;
-        Check(message.Visibility == Visibility.Visible && message.Text == failed.Message && message.Foreground == Application.Current.Resources["Red"],
+        using var fixture = new Fixture([profile], [failed, completed]); var model = fixture.Model;
+        model.SelectedHistoryRun = failed;
+        Check(model.HasHistoryMessage && model.HistoryMessage == failed.Message && model.HistoryMessageTone == StatusTone.Red,
             "O motivo da falha não apareceu em vermelho no Histórico.");
-        Screenshot(window, "historico-motivo");
-        Control<DataGrid>(window, "HistoryGrid").SelectedItem = completed;
-        Check(message.Text == completed.Message && message.Foreground == Application.Current.Resources["Teal"], "A mensagem não acompanhou a visita selecionada.");
-        Control<DataGrid>(window, "HistoryGrid").SelectedItem = null;
-        Check(message.Visibility == Visibility.Collapsed, "A mensagem ficou visível sem visita selecionada.");
+        model.SelectedHistoryRun = completed;
+        Check(model.HistoryMessage == completed.Message && model.HistoryMessageTone == StatusTone.Teal && model.HistoryFloors!.Single() == completed.Floors[0],
+            "A mensagem não acompanhou a visita selecionada.");
+        model.SelectedHistoryRun = null;
+        Check(!model.HasHistoryMessage && model.HistoryFloors is null, "A mensagem ficou visível sem visita selecionada.");
     }
 
     private static void IncompleteProfile()
     {
         var profile = Profile(); profile.ReporterName = ""; profile.Extension = " ";
-        using var fixture = new Fixture([profile], [], allowCleanup: true); var window = fixture.Window;
-        // Uma janela aqui travaria o teste; a validação precisa terminar sem interação.
-        Invoke(window, "Execute", null, null);
-        var status = Control<TextBlock>(window, "RunStatus");
-        var lines = status.Text.Split(Environment.NewLine);
-        Check(status.Visibility == Visibility.Visible && status.Foreground == Application.Current.Resources["Red"] &&
-            lines.Contains("Preencha Solicitante.") && lines.Contains("Preencha Ramal."), "Os erros de validação não apareceram no painel, um por linha.");
-        Check(Control<DataGrid>(window, "HistoryGrid").Items.Count == 0 && Control<Button>(window, "ExecuteButton").IsEnabled &&
-            !Directory.EnumerateFiles(Path.Combine(Store(window).Root, "runs")).Any(), "Um perfil incompleto criou uma visita ou bloqueou a tela.");
-        Screenshot(window, "perfil-incompleto");
+        using var fixture = new Fixture([profile], [], preview: false); var model = fixture.Model;
+        Await(model.ExecuteAsync());
+        var lines = model.Status.Split(Environment.NewLine);
+        Check(model.HasStatus && model.StatusTone == StatusTone.Red && lines.Contains("Preencha Solicitante.") && lines.Contains("Preencha Ramal."),
+            "Os erros de validação não apareceram no painel, um por linha.");
+        Check(fixture.Dialogs.Messages.Count == 0, "A validação abriu uma janela.");
+        Check(model.History.Count == 0 && model.ExecuteCommand.CanExecute(null) && model.State == ScreenState.Idle &&
+            (!Directory.Exists(Path.Combine(model.Store.Root, "runs")) || !Directory.EnumerateFiles(Path.Combine(model.Store.Root, "runs")).Any()),
+            "Um perfil incompleto criou uma visita ou bloqueou a tela.");
+    }
+
+    private static void AccessCheck()
+    {
+        Func<AppSettings, Action<string>, CancellationToken, Task> connect = (_, report, _) => { report("Faça login no Jira na janela do Edge."); return Task.CompletedTask; };
+        var reports = new List<string>();
+        using var fixture = new Fixture([Profile()], [], preview: false, automation: _ => new FakeAutomation((settings, report, token) =>
+            connect(settings, message => { reports.Add(message); report(message); }, token)));
+        var model = fixture.Model;
+        Await(model.CheckAccessAsync());
+        Check(reports.Count == 1 && model.Status.StartsWith("Acesso confirmado") && model.StatusTone == StatusTone.Teal && model.State == ScreenState.Idle,
+            "O acesso confirmado não apareceu no painel.");
+        connect = (_, _, _) => throw new Exception("O Edge não abriu.");
+        Await(model.CheckAccessAsync());
+        Check(model.Status.Contains("O Edge não abriu.") && model.StatusTone == StatusTone.Red && fixture.Dialogs.Messages.Count == 0,
+            "A falha do acesso não ficou no painel, em vermelho e sem janela.");
+        connect = (_, _, token) => Task.Delay(Timeout.Infinite, token);
+        var waiting = model.CheckAccessAsync();
+        Check(model.State == ScreenState.Running && model.StopCommand.CanExecute(null), "A verificação não ofereceu Parar.");
+        model.Stop(); Await(waiting);
+        Check(model.Status == "Verificação de acesso interrompida." && model.StatusTone == StatusTone.Amber && model.State == ScreenState.Idle,
+            "A interrupção da verificação não foi informada.");
+    }
+
+    private static void SettingsValidation()
+    {
+        using var fixture = new Fixture([Profile()], [], preview: false); var model = fixture.Model;
+        model.JiraUrl = "http://jira.example.com";
+        Await(model.SaveSettingsAsync());
+        Check(model.SettingsStatus.Contains("https://") && model.SettingsStatusTone == StatusTone.Red && !File.Exists(Path.Combine(model.Store.Root, "settings.json")),
+            "Um endereço inválido foi aceito.");
+        model.JiraUrl = "https://jira.example.com/";
+        Check(model.SettingsStatus.Length == 0, "Editar o endereço não limpou o aviso.");
+        Await(model.SaveSettingsAsync());
+        var saved = Await(model.Store.LoadSettingsAsync());
+        Check(model.SettingsStatus == "Configurações salvas." && model.SettingsStatusTone == StatusTone.Teal && saved.JiraUrl == "https://jira.example.com",
+            "O endereço corrigido não foi salvo sem a barra final.");
+    }
+
+    private static void DangerConfirmDefaults()
+    {
+        var dialog = new DangerConfirmWindow("Limpar histórico e pendências", "Apagar todo o histórico deste computador?", "Limpar tudo");
+        try
+        {
+            var buttons = Descendants(dialog).OfType<Button>().ToArray();
+            Check(buttons.Single(b => b.IsDefault).Content.Equals("Cancelar") && buttons.Single(b => b.IsCancel).Content.Equals("Cancelar"), "Confirmação não usa Cancelar por padrão.");
+            Screenshot(dialog, "confirmar-limpeza");
+        }
+        finally { dialog.Close(); }
     }
 
     private static void ProfileEditorValidation()
@@ -425,16 +500,15 @@ internal static class Program
         try
         {
             editor.Show(); editor.UpdateLayout();
-            void Save() => typeof(ProfileWindow).GetMethod("Save", PrivateInstance)!.Invoke(editor, [null, null]);
             var message = (TextBlock)editor.FindName("ValidationMessage"); var tabs = (TabControl)editor.FindName("EditorTabs");
             var name = (TextBox)editor.FindName("NameBox"); var grid = (DataGrid)editor.FindName("FloorsGrid");
             var red = Application.Current.Resources["Red"];
-            name.Text = " "; tabs.SelectedIndex = 1; Save();
+            name.Text = " "; tabs.SelectedIndex = 1; editor.Save(editor, new RoutedEventArgs());
             Check(tabs.SelectedIndex == 0 && name.BorderBrush == red && message.Text.Contains("nome do perfil"), "O nome vazio não foi marcado no editor.");
             Screenshot(editor, "perfil-invalido");
             name.Text = "Unidade A";
             Check(message.Text.Length == 0 && name.BorderBrush != red, "A marcação continuou depois da correção.");
-            Save();
+            editor.Save(editor, new RoutedEventArgs());
             Check(tabs.SelectedIndex == 1 && grid.BorderBrush == red && grid.SelectedItem == editor.Profile.Floors[0] && message.Text.Contains("pavimento"),
                 "O pavimento repetido não foi marcado no editor.");
         }
@@ -445,28 +519,26 @@ internal static class Program
     {
         ProfileWindow Open(Func<bool> confirm)
         {
-            var editor = new ProfileWindow(Profile()) { ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000 };
-            typeof(ProfileWindow).GetProperty("ConfirmDiscard", PrivateInstance)!.SetValue(editor, confirm);
+            var editor = new ProfileWindow(Profile()) { ShowActivated = false, ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000, ConfirmDiscard = confirm };
             editor.Show(); editor.UpdateLayout(); return editor;
         }
-        void Cancel(ProfileWindow editor) => typeof(ProfileWindow).GetMethod("Cancel", PrivateInstance)!.Invoke(editor, [null, null]);
         var asked = 0;
         var untouched = Open(() => { asked++; return false; });
-        Cancel(untouched);
+        untouched.Cancel(untouched, new RoutedEventArgs());
         Check(!untouched.IsVisible && asked == 0, "Cancelar sem alterações pediu confirmação ou não fechou.");
         var edited = Open(() => { asked++; return false; });
         try
         {
             ((TextBox)edited.FindName("NameBox")).Text = "Unidade renomeada";
-            Cancel(edited);
+            edited.Cancel(edited, new RoutedEventArgs());
             Check(edited.IsVisible && asked == 1, "Cancelar com alterações fechou sem confirmação.");
             ((TextBox)edited.FindName("NameBox")).Text = "Unidade A";
-            Cancel(edited);
+            edited.Cancel(edited, new RoutedEventArgs());
             Check(!edited.IsVisible && asked == 1, "Desfazer a alteração ainda pediu confirmação.");
         }
         finally { edited.Close(); }
         var floors = Open(() => { asked++; return true; });
-        typeof(ProfileWindow).GetMethod("AddFloor", PrivateInstance)!.Invoke(floors, [null, null]);
+        floors.AddFloor(floors, new RoutedEventArgs());
         floors.Close();
         Check(!floors.IsVisible && asked == 2, "Fechar a janela depois de incluir um pavimento não pediu confirmação.");
     }
@@ -483,25 +555,8 @@ internal static class Program
         Directory.CreateDirectory(screenshotDirectory);
         if (!window.IsVisible)
         {
-            ProfileDocument? profiles = null; List<VisitRun>? runs = null;
-            var pendingId = window is MainWindow main ? SelectedRun(main)?.Id : null;
-            if (window is MainWindow)
-            {
-                var original = (ProfileDocument)typeof(MainWindow).GetField("profiles", PrivateInstance)!.GetValue(window)!;
-                profiles = new ProfileDocument { Profiles = original.Profiles.ToList(), ActiveProfileId = original.ActiveProfileId };
-                runs = ((List<VisitRun>)typeof(MainWindow).GetField("runs", PrivateInstance)!.GetValue(window)!).ToList();
-            }
             window.ShowInTaskbar = false; window.WindowStartupLocation = WindowStartupLocation.Manual;
             window.Left = -10000; window.Top = -10000; window.Show();
-            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
-            if (window is MainWindow shown)
-            {
-                typeof(MainWindow).GetField("profiles", PrivateInstance)!.SetValue(shown, profiles);
-                typeof(MainWindow).GetField("runs", PrivateInstance)!.SetValue(shown, runs);
-                Invoke(shown, "RefreshProfiles", profiles!.ActiveProfileId);
-                Invoke(shown, "RefreshPendingVisits", pendingId, false);
-                Invoke(shown, "RefreshHistory", (object?)null);
-            }
         }
         window.UpdateLayout();
         Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
@@ -515,23 +570,50 @@ internal static class Program
         _ = task.ContinueWith(_ => Dispatcher.CurrentDispatcher.BeginInvoke(() => frame.Continue = false), TaskScheduler.FromCurrentSynchronizationContext());
         Dispatcher.PushFrame(frame); task.GetAwaiter().GetResult();
     }
+    private static T Await<T>(Task<T> task) { Await((Task)task); return task.Result; }
+
+    // Respostas das janelas definidas por cada teste; uma janela inesperada aparece como mensagem registrada.
+    private sealed class TestDialogs : IMainDialogs
+    {
+        public Func<string, bool> ConfirmDangerAnswer { get; set; } = _ => throw new Exception("Confirmação inesperada.");
+        public List<string> Messages { get; } = [];
+        public bool ConfirmDanger(string title, string message, string confirmLabel) => ConfirmDangerAnswer(message);
+        public bool Confirm(string message) { Messages.Add(message); return false; }
+        public VisitProfile? EditProfile(VisitProfile profile) => null;
+        public string? AskIssueKey(string floorName) => null;
+        public bool ConfirmCloseRetry(FloorRun floor, IssueSnapshot snapshot) => false;
+        public void ShowWarning(string message) => Messages.Add(message);
+        public void ShowError(string message) => Messages.Add(message);
+        public Task ExportLogAsync(VisitRun? run) => Task.CompletedTask;
+    }
+
+    // Só a verificação de acesso usa a automação nestes testes; o fluxo completo é coberto pelos testes do Edge.
+    private sealed class FakeAutomation(Func<AppSettings, Action<string>, CancellationToken, Task> connect) : IJiraAutomation
+    {
+        public Task ConnectAsync(AppSettings settings, Action<string> report, CancellationToken cancellationToken, string? initialIssueKey = null) =>
+            connect(settings, report, cancellationToken);
+        public Task PrepareCreateAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<string> SubmitCreateAsync(VisitRun run, FloorRun floor) => throw new NotSupportedException();
+        public Task<IssueSnapshot> ReadIssueAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task AssignAsync(VisitRun run, FloorRun floor) => throw new NotSupportedException();
+        public Task StartAsync(VisitRun run, FloorRun floor) => throw new NotSupportedException();
+        public Task PrepareCloseAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task SubmitCloseAsync(VisitRun run, FloorRun floor) => throw new NotSupportedException();
+        public Task CaptureFailureAsync(VisitRun run) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
     private sealed class Fixture : IDisposable
     {
-        public MainWindow Window { get; }
-        public Fixture(List<VisitProfile> profiles, List<VisitRun> runs, bool allowCleanup = false)
+        private readonly DiagnosticService diagnostics;
+        public TestDialogs Dialogs { get; } = new();
+        public MainViewModel Model { get; }
+        public Fixture(List<VisitProfile> profiles, List<VisitRun> runs, bool preview = true, Func<LocalStore, IJiraAutomation>? automation = null)
         {
-            var diagnostics = allowCleanup ? new DiagnosticService(Path.Combine(Path.GetTempPath(), "VistoraDesktopTests", Guid.NewGuid().ToString("N"))) : null;
-            Window = new MainWindow(preview: !allowCleanup, diagnostics: diagnostics);
-            if (allowCleanup) SetField(Window, "loading", false);
-            typeof(MainWindow).GetField("profiles", PrivateInstance)!.SetValue(Window, new ProfileDocument { Profiles = profiles, ActiveProfileId = profiles.FirstOrDefault()?.Id });
-            typeof(MainWindow).GetField("runs", PrivateInstance)!.SetValue(Window, runs);
-            Invoke(Window, "RefreshProfiles", (object?)null); Invoke(Window, "RefreshHistory", (object?)null);
-            Invoke(Window, "UpdateInteraction");
+            diagnostics = new DiagnosticService(Path.Combine(Path.GetTempPath(), "VistoraDesktopTests", Guid.NewGuid().ToString("N")));
+            Model = new MainViewModel(diagnostics, Dialogs, preview, automationFactory: automation);
+            Model.Show(new ProfileDocument { Profiles = profiles, ActiveProfileId = profiles.FirstOrDefault()?.Id }, runs);
         }
-        public void Dispose()
-        {
-            Window.Close();
-            Await(((DiagnosticService)typeof(MainWindow).GetField("diagnostics", PrivateInstance)!.GetValue(Window)!).DisposeAsync().AsTask());
-        }
+        public void Dispose() => Await(diagnostics.DisposeAsync().AsTask());
     }
 }
