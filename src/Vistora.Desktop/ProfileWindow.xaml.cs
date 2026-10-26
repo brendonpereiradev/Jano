@@ -90,7 +90,7 @@ public partial class ProfileWindow : Window
     private void ShowInvalid(Control field, int tab, string message)
     {
         EditorTabs.SelectedIndex = tab;
-        field.BorderBrush = (System.Windows.Media.Brush)FindResource("Red");
+        field.SetResourceReference(BorderBrushProperty, "AppDangerBrush");
         ValidationMessage.Text = message;
     }
     private void ClearValidation(object sender, EventArgs e)

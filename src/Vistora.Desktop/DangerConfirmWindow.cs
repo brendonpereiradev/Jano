@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Media;
 
 namespace Vistora.Desktop;
 
@@ -17,7 +16,7 @@ public sealed class DangerConfirmWindow : Window
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 24, 0, 0) };
         var cancel = new Button { Content = "Cancelar", IsCancel = true, IsDefault = true };
-        var clear = new Button { Content = confirmLabel, Background = (Brush)FindResource("Red"), Foreground = Brushes.White };
+        var clear = new Button { Content = confirmLabel, Style = (Style)FindResource("DangerFilled") };
         clear.Click += (_, _) => DialogResult = true;
         actions.Children.Add(cancel); actions.Children.Add(clear); panel.Children.Add(actions);
         Content = panel;

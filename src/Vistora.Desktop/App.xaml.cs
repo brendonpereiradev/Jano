@@ -37,12 +37,16 @@ public partial class App : Application
         };
         TaskScheduler.UnobservedTaskException += (_, args) =>
             diagnostics.AppEvent("app.task_error", "Erro em tarefa de segundo plano.", DiagnosticLevel.Error, args.Exception);
+        // O tema salvo vale antes da primeira janela, para ela não abrir clara e escurecer depois.
+        Theme.FollowNewWindows();
+        Theme.Apply(preview ? (e.Args.Contains("--preview-dark") ? AppTheme.Dark : AppTheme.Light) : SavedTheme(diagnostics));
         var pageIndex = Array.IndexOf(e.Args, "--preview-page");
         var page = preview && pageIndex >= 0 && e.Args.Length > pageIndex + 1 && int.TryParse(e.Args[pageIndex + 1], out var n) ? n : 0;
         MainWindow? window = null;
         try
         {
-            var viewModel = new MainViewModel(diagnostics, new WindowDialogs(() => window, diagnostics), preview, preview && e.Args.Contains("--preview-pending"));
+            var viewModel = new MainViewModel(diagnostics, new WindowDialogs(() => window, diagnostics), preview, preview && e.Args.Contains("--preview-pending"))
+                { IsDarkTheme = Theme.Current == AppTheme.Dark };
             window = new MainWindow(viewModel, page);
             window.Loaded += async (_, _) => await viewModel.LoadAsync();
         }
@@ -85,6 +89,13 @@ public partial class App : Application
             };
         }
     }
+    // Um settings.json ilegível não impede a abertura: o tema fica claro e o MainViewModel trata o arquivo ao carregar.
+    private static AppTheme SavedTheme(DiagnosticService diagnostics)
+    {
+        try { return Task.Run(() => new LocalStore(diagnostics.Root).LoadSettingsAsync()).GetAwaiter().GetResult().Theme; }
+        catch (Exception) { return AppTheme.Light; }
+    }
+
     protected override void OnExit(ExitEventArgs e)
     {
         if (diagnostics is not null) Task.Run(async () => await diagnostics.DisposeAsync()).GetAwaiter().GetResult();

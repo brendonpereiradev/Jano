@@ -43,6 +43,7 @@ internal static class Program
             ("Perfil incompleto mostra os erros no painel, sem abrir janela", IncompleteProfile),
             ("Verificar acesso informa sucesso, falha e interrupção no painel", AccessCheck),
             ("Configurações recusam endereço inválido e salvam o corrigido", SettingsValidation),
+            ("Tema escuro vale na hora, inclusive nas cores de estado, e fica salvo", ThemeSwitch),
             ("Confirmação de exclusão usa Cancelar como padrão", DangerConfirmDefaults),
             ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation),
             ("Cancelar o editor com alterações pede confirmação", ProfileEditorUnsavedChanges)
@@ -169,7 +170,7 @@ internal static class Program
         try
         {
             var status = Control<TextBlock>(window, "RunStatus"); var execute = Control<Button>(window, "ExecuteButton");
-            Check(status.Visibility == Visibility.Visible && status.Text == run.Message && status.Foreground == Color("Red"),
+            Check(status.Visibility == Visibility.Visible && status.Text == run.Message && status.Foreground == Color("AppDangerTextBrush"),
                 "O painel de status não mostrou o motivo da falha em vermelho.");
             Check(Equals(Control<ComboBox>(window, "PendingVisitPicker").SelectedItem, model.SelectedPendingVisit) && model.SelectedPendingVisit is not null &&
                 Control<DataGridColumn>(window, "VisitColumn").Visibility == Visibility.Collapsed &&
@@ -189,7 +190,7 @@ internal static class Program
                 !execute.IsEnabled && !Control<ComboBox>(window, "PendingVisitPicker").IsEnabled, "A execução não bloqueou a tela nem destacou Parar.");
             Screenshot(window, "executando");
             model.Stop();
-            Check(stop.Content.Equals("Parando…") && !stop.IsEnabled && status.Foreground == Color("Muted"), "Parar não apareceu na tela.");
+            Check(stop.Content.Equals("Parando…") && !stop.IsEnabled && status.Foreground == Color("AppTextSecondaryBrush"), "Parar não apareceu na tela.");
             Screenshot(window, "parando");
             model.State = ScreenState.Idle;
             Check(stop.Visibility == Visibility.Collapsed && execute.IsEnabled, "A tela não foi liberada depois da execução.");
@@ -199,10 +200,10 @@ internal static class Program
             Screenshot(window, "perfis");
             window.SelectPage(2);
             var history = Control<DataGrid>(window, "HistoryGrid"); var message = Control<TextBlock>(window, "HistoryRunMessage");
-            Check(history.SelectedItem == run && message.Text == run.Message && message.Foreground == Color("Red"), "O Histórico não mostrou a visita escolhida.");
+            Check(history.SelectedItem == run && message.Text == run.Message && message.Foreground == Color("AppDangerTextBrush"), "O Histórico não mostrou a visita escolhida.");
             Screenshot(window, "historico");
             history.SelectedItem = completed;
-            Check(model.SelectedHistoryRun == completed && message.Foreground == Color("Teal") &&
+            Check(model.SelectedHistoryRun == completed && message.Foreground == Color("AppSuccessTextBrush") &&
                 Control<DataGrid>(window, "RunFloorGrid").Items.Cast<FloorRun>().Single() == completed.Floors[0], "Escolher no Histórico não chegou ao ViewModel.");
             window.SelectPage(3);
             var jira = Control<TextBox>(window, "JiraUrlBox");
@@ -313,7 +314,7 @@ internal static class Program
         Check(model.History.Count == 0 && model.HistoryFloors is null && model.SelectedRun is null, "Limpeza deixou dados nas tabelas.");
         Check(!model.HasPendingVisits && model.Progress == 0, "Limpeza deixou pendências ou progresso.");
         Check(model.ActiveProfile == profile && model.ExecuteCommand.CanExecute(null) && model.ExecuteLabel == "Executar visita preventiva", "Limpeza não restaurou o perfil e a nova execução.");
-        Check(model.ClearHistoryCommand.CanExecute(null) && model.HistoryStatus.Contains("removidos") && model.HistoryStatusTone == StatusTone.Teal, "Limpeza não informou sucesso ou liberou a tela.");
+        Check(model.ClearHistoryCommand.CanExecute(null) && model.HistoryStatus.Contains("removidos") && model.HistoryStatusTone == StatusTone.Success, "Limpeza não informou sucesso ou liberou a tela.");
     }
 
     private static void CleanupGuards()
@@ -351,7 +352,7 @@ internal static class Program
         using (File.Open(RunFile(model, second), FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             Await(model.ClearHistoryAsync());
-            Check(model.HistoryStatus.Contains("incompleta") && model.HistoryStatusTone == StatusTone.Red && model.History.Count == 1 && model.History[0].Id == second.Id,
+            Check(model.HistoryStatus.Contains("incompleta") && model.HistoryStatusTone == StatusTone.Danger && model.History.Count == 1 && model.History[0].Id == second.Id,
                 "Falha parcial declarou sucesso ou mostrou registros incorretos.");
         }
         Await(model.ClearHistoryAsync());
@@ -363,18 +364,18 @@ internal static class Program
         var first = Profile(); var second = Profile("Unidade B"); var run = Run(first);
         run.State = RunState.Failed; run.Message = "O campo “Andar” não corresponde a Pavimento 1.";
         using var fixture = new Fixture([first, second], [run]); var model = fixture.Model;
-        Check(model.SelectedRun == run && model.HasStatus && model.Status == run.Message && model.StatusTone == StatusTone.Red,
+        Check(model.SelectedRun == run && model.HasStatus && model.Status == run.Message && model.StatusTone == StatusTone.Danger,
             "O motivo da falha da visita pendente não apareceu em vermelho.");
         run.State = RunState.Running; run.Message = "Faça login no Jira na janela do Edge. A execução continuará após o login.";
         model.ShowProgress(run);
-        Check(model.Status == run.Message && model.StatusTone == StatusTone.Ink, "O progresso da execução não atualizou o status.");
+        Check(model.Status == run.Message && model.StatusTone == StatusTone.Text, "O progresso da execução não atualizou o status.");
         Check(model.ProgressCount == "0 de 1 fechados", "A contagem de pavimentos fechados não apareceu no painel.");
         run.Floors[0].Stage = FloorStage.Closed; model.ShowProgress(run);
         Check(model.ProgressCount == "1 de 1 fechados" && model.Progress == 100, "A contagem não acompanhou o progresso.");
         run.Floors[0].Stage = FloorStage.Created;
         run.State = RunState.Interrupted; run.Message = "Execução interrompida. O progresso foi salvo.";
         model.ShowProgress(run);
-        Check(model.Status == run.Message && model.StatusTone == StatusTone.Amber, "A interrupção não foi destacada.");
+        Check(model.Status == run.Message && model.StatusTone == StatusTone.Attention, "A interrupção não foi destacada.");
         model.State = ScreenState.Running;
         Check(model.StopCommand.CanExecute(null) && model.StopLabel == "Parar execução", "O botão de parar não ficou disponível.");
         model.Stop();
@@ -412,7 +413,7 @@ internal static class Program
         Check(model.History.Single() == withIssue, "O histórico manteve a visita descartada.");
         Check(model.SelectedRun is null && model.ActiveProfile == profile && !model.CanDiscard &&
             model.ExecuteCommand.CanExecute(null) && model.ExecuteLabel == "Executar visita preventiva", "O perfil não voltou a permitir uma nova visita.");
-        Check(model.Status.Contains("descartada") && model.StatusTone == StatusTone.Teal, "O descarte não foi informado no painel de status.");
+        Check(model.Status.Contains("descartada") && model.StatusTone == StatusTone.Success, "O descarte não foi informado no painel de status.");
     }
 
     private static void HistoryMessage()
@@ -421,10 +422,10 @@ internal static class Program
         var completed = Run(Profile("Unidade B")); completed.State = RunState.Completed; completed.Message = "Visita concluída.";
         using var fixture = new Fixture([profile], [failed, completed]); var model = fixture.Model;
         model.SelectedHistoryRun = failed;
-        Check(model.HasHistoryMessage && model.HistoryMessage == failed.Message && model.HistoryMessageTone == StatusTone.Red,
+        Check(model.HasHistoryMessage && model.HistoryMessage == failed.Message && model.HistoryMessageTone == StatusTone.Danger,
             "O motivo da falha não apareceu em vermelho no Histórico.");
         model.SelectedHistoryRun = completed;
-        Check(model.HistoryMessage == completed.Message && model.HistoryMessageTone == StatusTone.Teal && model.HistoryFloors!.Single() == completed.Floors[0],
+        Check(model.HistoryMessage == completed.Message && model.HistoryMessageTone == StatusTone.Success && model.HistoryFloors!.Single() == completed.Floors[0],
             "A mensagem não acompanhou a visita selecionada.");
         model.SelectedHistoryRun = null;
         Check(!model.HasHistoryMessage && model.HistoryFloors is null, "A mensagem ficou visível sem visita selecionada.");
@@ -436,7 +437,7 @@ internal static class Program
         using var fixture = new Fixture([profile], [], preview: false); var model = fixture.Model;
         Await(model.ExecuteAsync());
         var lines = model.Status.Split(Environment.NewLine);
-        Check(model.HasStatus && model.StatusTone == StatusTone.Red && lines.Contains("Preencha Solicitante.") && lines.Contains("Preencha Ramal."),
+        Check(model.HasStatus && model.StatusTone == StatusTone.Danger && lines.Contains("Preencha Solicitante.") && lines.Contains("Preencha Ramal."),
             "Os erros de validação não apareceram no painel, um por linha.");
         Check(fixture.Dialogs.Messages.Count == 0, "A validação abriu uma janela.");
         Check(model.History.Count == 0 && model.ExecuteCommand.CanExecute(null) && model.State == ScreenState.Idle &&
@@ -452,17 +453,17 @@ internal static class Program
             connect(settings, message => { reports.Add(message); report(message); }, token)));
         var model = fixture.Model;
         Await(model.CheckAccessAsync());
-        Check(reports.Count == 1 && model.Status.StartsWith("Acesso confirmado") && model.StatusTone == StatusTone.Teal && model.State == ScreenState.Idle,
+        Check(reports.Count == 1 && model.Status.StartsWith("Acesso confirmado") && model.StatusTone == StatusTone.Success && model.State == ScreenState.Idle,
             "O acesso confirmado não apareceu no painel.");
         connect = (_, _, _) => throw new Exception("O Edge não abriu.");
         Await(model.CheckAccessAsync());
-        Check(model.Status.Contains("O Edge não abriu.") && model.StatusTone == StatusTone.Red && fixture.Dialogs.Messages.Count == 0,
+        Check(model.Status.Contains("O Edge não abriu.") && model.StatusTone == StatusTone.Danger && fixture.Dialogs.Messages.Count == 0,
             "A falha do acesso não ficou no painel, em vermelho e sem janela.");
         connect = (_, _, token) => Task.Delay(Timeout.Infinite, token);
         var waiting = model.CheckAccessAsync();
         Check(model.State == ScreenState.Running && model.StopCommand.CanExecute(null), "A verificação não ofereceu Parar.");
         model.Stop(); Await(waiting);
-        Check(model.Status == "Verificação de acesso interrompida." && model.StatusTone == StatusTone.Amber && model.State == ScreenState.Idle,
+        Check(model.Status == "Verificação de acesso interrompida." && model.StatusTone == StatusTone.Attention && model.State == ScreenState.Idle,
             "A interrupção da verificação não foi informada.");
     }
 
@@ -471,14 +472,44 @@ internal static class Program
         using var fixture = new Fixture([Profile()], [], preview: false); var model = fixture.Model;
         model.JiraUrl = "http://jira.example.com";
         Await(model.SaveSettingsAsync());
-        Check(model.SettingsStatus.Contains("https://") && model.SettingsStatusTone == StatusTone.Red && !File.Exists(Path.Combine(model.Store.Root, "settings.json")),
+        Check(model.SettingsStatus.Contains("https://") && model.SettingsStatusTone == StatusTone.Danger && !File.Exists(Path.Combine(model.Store.Root, "settings.json")),
             "Um endereço inválido foi aceito.");
         model.JiraUrl = "https://jira.example.com/";
         Check(model.SettingsStatus.Length == 0, "Editar o endereço não limpou o aviso.");
         Await(model.SaveSettingsAsync());
         var saved = Await(model.Store.LoadSettingsAsync());
-        Check(model.SettingsStatus == "Configurações salvas." && model.SettingsStatusTone == StatusTone.Teal && saved.JiraUrl == "https://jira.example.com",
+        Check(model.SettingsStatus == "Configurações salvas." && model.SettingsStatusTone == StatusTone.Success && saved.JiraUrl == "https://jira.example.com",
             "O endereço corrigido não foi salvo sem a barra final.");
+    }
+
+    private static void ThemeSwitch()
+    {
+        using var fixture = new Fixture([Profile()], [], preview: false); var model = fixture.Model;
+        var window = Open(model);
+        object Resource(string key) => Application.Current.Resources[key];
+        try
+        {
+            window.SelectPage(3);
+            model.JiraUrl = "http://jira.example.com"; Await(model.SaveSettingsAsync());
+            var status = Control<TextBlock>(window, "SettingsStatus"); var lightDanger = Resource("AppDangerTextBrush");
+            Check(Theme.Current == AppTheme.Light && window.Background == Resource("AppCanvasBackgroundBrush") && status.Foreground == lightDanger,
+                "A janela não abriu no tema claro.");
+            Control<CheckBox>(window, "DarkThemeBox").IsChecked = true;
+            Check(model.IsDarkTheme && Theme.Current == AppTheme.Dark, "Marcar o tema escuro não chegou ao ViewModel.");
+            Check(window.Background == Resource("AppCanvasBackgroundBrush") && ((SolidColorBrush)window.Background).Color.R < 0x30 && status.Foreground == Resource("AppDangerTextBrush") && status.Foreground != lightDanger,
+                "A janela e a cor de estado não acompanharam o tema escuro.");
+            Screenshot(window, "configuracoes-escuro");
+            var editor = new ProfileWindow(Profile());
+            Check(Control<TextBox>(editor, "NameBox").Background == Resource("AppInputBackgroundBrush"), "O editor de perfil não abriu no tema escuro.");
+            Screenshot(editor, "editar-perfil-escuro"); editor.Close();
+            Await(model.ThemeSaved);
+            Check(Await(model.Store.LoadSettingsAsync()).Theme == AppTheme.Dark, "O tema escuro não foi salvo.");
+            Check(!File.ReadAllText(Path.Combine(model.Store.Root, "settings.json")).Contains("http://jira.example.com"),
+                "Salvar o tema gravou o endereço inválido ainda não salvo.");
+            model.IsDarkTheme = false; Await(model.ThemeSaved);
+            Check(Theme.Current == AppTheme.Light && Await(model.Store.LoadSettingsAsync()).Theme == AppTheme.Light, "A volta ao tema claro não valeu.");
+        }
+        finally { window.Close(); Theme.Apply(AppTheme.Light); }
     }
 
     private static void DangerConfirmDefaults()
@@ -502,7 +533,7 @@ internal static class Program
             editor.Show(); editor.UpdateLayout();
             var message = (TextBlock)editor.FindName("ValidationMessage"); var tabs = (TabControl)editor.FindName("EditorTabs");
             var name = (TextBox)editor.FindName("NameBox"); var grid = (DataGrid)editor.FindName("FloorsGrid");
-            var red = Application.Current.Resources["Red"];
+            var red = Application.Current.Resources["AppDangerBrush"];
             name.Text = " "; tabs.SelectedIndex = 1; editor.Save(editor, new RoutedEventArgs());
             Check(tabs.SelectedIndex == 0 && name.BorderBrush == red && message.Text.Contains("nome do perfil"), "O nome vazio não foi marcado no editor.");
             Screenshot(editor, "perfil-invalido");

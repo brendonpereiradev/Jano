@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Vistora.Core;
 
 namespace Vistora.Desktop;
 
@@ -29,7 +30,11 @@ public partial class MainWindow : Window
         RailItems.ItemsSource = PageList;
         SelectPage(startPage);
         // Colunas de DataGrid não herdam o DataContext, então a coluna de escolha acompanha o ViewModel por aqui.
-        viewModel.PropertyChanged += (_, e) => { if (e.PropertyName == nameof(MainViewModel.CanChooseFloors)) ShowVisitColumn(); };
+        viewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.CanChooseFloors)) ShowVisitColumn();
+            if (e.PropertyName == nameof(MainViewModel.IsDarkTheme)) Theme.Apply(viewModel.IsDarkTheme ? AppTheme.Dark : AppTheme.Light);
+        };
         ShowVisitColumn();
     }
 
