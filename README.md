@@ -1,4 +1,6 @@
-<h1 align="center">Vistora</h1>
+<p align="center">
+  <img src="assets/brand/jano-logo-animated.svg" width="460" alt="Jano, visitas preventivas" />
+</p>
 
 <p align="center">
   Automação de chamados de visitas preventivas no Jira, com execução pelo Microsoft Edge.
@@ -13,9 +15,11 @@
 
 ## Sobre o projeto
 
-Vistora é uma aplicação desktop em .NET 10 e WPF para registrar visitas preventivas por unidade e pavimento. Para cada pavimento selecionado, ela abre um chamado no Jira, atribui ao técnico conectado, inicia o atendimento e envia o fechamento, tudo pela interface do Jira em uma janela visível do Edge, sem usar a API.
+Jano (antes chamado Vistora) é uma aplicação desktop em .NET 10 e WPF para registrar visitas preventivas por unidade e pavimento. Para cada pavimento selecionado, ela abre um chamado no Jira, atribui ao técnico conectado, inicia o atendimento e envia o fechamento, tudo pela interface do Jira em uma janela visível do Edge, sem usar a API.
 
-A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas), `Vistora.Infrastructure` (persistência em JSON e diagnóstico), `Vistora.Automation.Edge` (operações no Jira) e `Vistora.Desktop` (interface). O progresso é salvo em `%LOCALAPPDATA%\Vistora` antes e depois de cada ação, o que permite retomar visitas interrompidas sem duplicar chamados.
+Jano é o deus romano das portas, dos começos e dos fins: em cada pavimento, o aplicativo abre um chamado e o fecha. Ele faz parte da mesma família visual do Hefesto, do Hermes e do Talos; a marca está em [assets/brand](assets/brand).
+
+A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas), `Vistora.Infrastructure` (persistência em JSON e diagnóstico), `Vistora.Automation.Edge` (operações no Jira) e `Vistora.Desktop` (interface). O progresso é salvo em `%LOCALAPPDATA%\Vistora` antes e depois de cada ação, o que permite retomar visitas interrompidas sem duplicar chamados. Os projetos e a pasta de dados mantêm o nome Vistora, então perfis, configurações e visitas pendentes da versão 1.x continuam valendo na 2.0.
 
 ---
 
@@ -29,6 +33,7 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 | Retomada de pendências | Recupera os dados originais da visita e confere os chamados antes de continuar. Visitas sem chamados podem ser descartadas. |
 | Conferência de resultados | Verifica responsável, status, resolução, comentário público e equipe no fechamento. |
 | Histórico e diagnóstico | Reúne os resultados das visitas e exporta um ZIP de registros para análise. |
+| Tema claro e escuro | Troca na hora, pela barra de título ou pelas Configurações, e fica salvo no computador. |
 
 ---
 
@@ -82,6 +87,8 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 | `.\scripts\Build.ps1` | Compila a solução em Release. |
 | `.\scripts\Test.ps1` | Executa os testes; `-SkipBrowser` dispensa os testes que abrem o Edge e `-BrowserOnly` roda só esses. |
 | `.\scripts\Publish.ps1` | Gera a aplicação com runtime incluído e o ZIP da versão em `output/release/`. |
+| `.\scripts\New-JanoIcons.ps1` | Gera o ícone do aplicativo a partir do emblema em `Themes/Brand.xaml`. |
+| `python scripts\New-Documentation.py` | Gera a documentação em PDF a partir do Markdown (requer o ReportLab). |
 
 ---
 

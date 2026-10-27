@@ -581,7 +581,7 @@ internal static class Program
         try
         {
             Check(warning.Buttons.Single() is { IsDefault: true, IsCancel: true } ok && ok.Content.Equals("OK") && warning.Result == MessageBoxResult.OK &&
-                warning.Title == "Vistora", "O aviso não ficou só com OK, padrão e recusa.");
+                warning.Title == "Jano", "O aviso não ficou só com OK, padrão e recusa.");
         }
         finally { warning.Close(); }
         var discard = new MessageWindow("Descartar?", "Descartar alterações", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.None);

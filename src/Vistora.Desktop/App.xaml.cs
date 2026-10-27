@@ -20,7 +20,7 @@ public partial class App : Application
         if (!preview)
         {
             instanceMutex = new Mutex(true, "Local\\Vistora.Desktop", out var created);
-            if (!created) { MessageWindow.Show(null, "O Vistora já está aberto.", "Aplicativo já aberto", image: MessageBoxImage.Information); Shutdown(); return; }
+            if (!created) { MessageWindow.Show(null, "O Jano já está aberto.", "Aplicativo já aberto", image: MessageBoxImage.Information); Shutdown(); return; }
         }
         diagnostics = new DiagnosticService(preview ? Path.Combine(Path.GetTempPath(), "VistoraPreview", Guid.NewGuid().ToString("N")) : null);
         DispatcherUnhandledException += (_, args) =>
@@ -52,9 +52,9 @@ public partial class App : Application
         catch (Exception ex)
         {
             diagnostics.AppEvent("app.startup_failed", "Não foi possível iniciar o aplicativo.", DiagnosticLevel.Error, ex, code: "STARTUP_FAILED");
-            var emergency = new JanoWindow { Title = "Vistora — diagnóstico", Subtitle = "Diagnóstico", Width = 540, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+            var emergency = new JanoWindow { Title = "Jano — diagnóstico", Subtitle = "Diagnóstico", Width = 540, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterScreen };
             var panel = new StackPanel { Margin = new Thickness(24) };
-            panel.Children.Add(new TextBlock { Text = "Não foi possível iniciar o Vistora. Os dados locais foram preservados. Os registros disponíveis ficam na pasta de logs do aplicativo.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Não foi possível iniciar o Jano. Os dados locais foram preservados. Os registros disponíveis ficam na pasta de logs do aplicativo.", TextWrapping = TextWrapping.Wrap });
             emergency.Content = panel; MainWindow = emergency; emergency.Show(); return;
         }
         MainWindow = window;

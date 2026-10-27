@@ -15,7 +15,7 @@ public sealed class MessageWindow : JanoWindow
 
     internal MessageWindow(string message, string title, MessageBoxButton buttons, MessageBoxImage image, MessageBoxResult defaultResult)
     {
-        Title = title.Length > 0 ? title : "Vistora"; Subtitle = title;
+        Title = title.Length > 0 ? title : "Jano"; Subtitle = title;
         Width = 480; SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize; ShowInTaskbar = false;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 

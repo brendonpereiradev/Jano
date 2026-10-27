@@ -8,8 +8,8 @@ if ($taskVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
     throw 'O projeto precisa declarar uma versão válida para a publicação.'
 }
 $taskReleaseDir = if ($OutputDirectory) { [System.IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $taskProjectRoot "output\release\$taskVersion" }
-$taskAppDir = Join-Path $taskReleaseDir 'Vistora'
-$taskZipPath = Join-Path $taskReleaseDir "Vistora-$taskVersion-Windows-x64.zip"
+$taskAppDir = Join-Path $taskReleaseDir 'Jano'
+$taskZipPath = Join-Path $taskReleaseDir "Jano-$taskVersion-Windows-x64.zip"
 if (Test-Path -LiteralPath $taskAppDir) {
     if (-not (Get-Item -LiteralPath $taskAppDir).PSIsContainer -or @(Get-ChildItem -LiteralPath $taskAppDir -Force).Count -gt 0) {
         throw 'A pasta do aplicativo já contém arquivos. Informe uma pasta nova em -OutputDirectory.'
@@ -32,12 +32,12 @@ foreach ($taskDocumentationFile in $taskDocumentationFiles) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $taskDocumentationTarget) | Out-Null
     Copy-Item -LiteralPath (Join-Path $taskProjectRoot $taskDocumentationFile) -Destination $taskDocumentationTarget
 }
-foreach ($taskRequiredFile in (@('Vistora.exe', 'Vistora.dll', 'Vistora.runtimeconfig.json', 'COMO-USAR.md', '.playwright/node/win32_x64/node.exe') + $taskDocumentationFiles)) {
+foreach ($taskRequiredFile in (@('Jano.exe', 'Jano.dll', 'Jano.runtimeconfig.json', 'COMO-USAR.md', '.playwright/node/win32_x64/node.exe') + $taskDocumentationFiles)) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskAppDir $taskRequiredFile) -PathType Leaf)) {
         throw "O pacote não contém um arquivo necessário: $taskRequiredFile"
     }
 }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory($taskAppDir, $taskZipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-Write-Output "Aplicativo: $(Join-Path $taskAppDir 'Vistora.exe')"
+Write-Output "Aplicativo: $(Join-Path $taskAppDir 'Jano.exe')"
 Write-Output "Pacote: $taskZipPath"

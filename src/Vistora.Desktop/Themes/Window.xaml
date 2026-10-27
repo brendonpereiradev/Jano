@@ -32,7 +32,7 @@
   </Style>
 
   <Style x:Key="JanoWindowStyle" TargetType="local:JanoWindow">
-    <Setter Property="Icon" Value="/Vistora;component/Assets/Branding/vistora-icon.ico"/>
+    <Setter Property="Icon" Value="/Jano;component/Assets/Branding/jano-icon.ico"/>
     <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/><Setter Property="Background" Value="{DynamicResource AppCanvasBackgroundBrush}"/>
     <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="local:JanoWindow">
       <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{DynamicResource AppLineStrongBrush}" BorderThickness="1">

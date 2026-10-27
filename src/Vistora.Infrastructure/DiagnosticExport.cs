@@ -75,7 +75,7 @@ public sealed partial class DiagnosticService
     };
     private static string SummaryText(RunDiagnosticSummary summary)
     {
-        var text = new StringBuilder($"Diagnóstico Vistora\nVisita: {summary.RunId}\nTentativas: {summary.Attempts.Length}\n");
+        var text = new StringBuilder($"Diagnóstico Jano\nVisita: {summary.RunId}\nTentativas: {summary.Attempts.Length}\n");
         text.AppendLine($"Tempo medido acumulado: {(summary.MeasuredDurationMs is { } ms ? TimeSpan.FromMilliseconds(ms).ToString("g") : "indisponível")}");
         text.AppendLine($"Diagnóstico parcial: {(summary.Partial ? "sim" : "não")}");
         foreach (var attempt in summary.Attempts)
@@ -190,7 +190,7 @@ public sealed partial class DiagnosticService
                 selectedEnvironment = environment.GetValueOrDefault("environmentId") as string;
                 files["environment.json"] = JsonBytes(environment);
                 if (selected.Length == 0) notes.Add("Não há eventos disponíveis para a sessão selecionada.");
-                files["resumo.txt"] = Encoding.UTF8.GetBytes($"Diagnóstico do aplicativo Vistora\nSessão: {selectedSession}\nAmbiente: {selectedEnvironment ?? "indisponível"}\nEventos disponíveis: {selected.Length}\n");
+                files["resumo.txt"] = Encoding.UTF8.GetBytes($"Diagnóstico do aplicativo Jano\nSessão: {selectedSession}\nAmbiente: {selectedEnvironment ?? "indisponível"}\nEventos disponíveis: {selected.Length}\n");
                 files["resumo.json"] = JsonBytes(new { schemaVersion = 1, sessionId = selectedSession, environmentId = selectedEnvironment, events = selected.Length });
             }
             else
@@ -200,7 +200,7 @@ public sealed partial class DiagnosticService
                 files["resumo.txt"] = Encoding.UTF8.GetBytes(SummaryText(summary));
             }
             var partial = notes.Count > 0 || DroppedEvents > 0 || attempts.Any(a => a.Partial || a.EndedAtUtc is null);
-            files["LEIA-ME.txt"] = Encoding.UTF8.GetBytes("Pacote portátil de diagnóstico do Vistora.\n" +
+            files["LEIA-ME.txt"] = Encoding.UTF8.GetBytes("Pacote portátil de diagnóstico do Jano.\n" +
                 "Leia resumo.txt; examine os eventos JSONL e environment.json de cada tentativa. Datas em UTC, durações em milissegundos.\n" +
                 "Os números dos chamados e identificadores técnicos foram conservados para correlação.\n" +
                 "Perfis, configurações completas, anexos e sessão do navegador não estão incluídos.\n" +
@@ -222,7 +222,7 @@ public sealed partial class DiagnosticService
         var target = Path.GetFullPath(destination);
         // Prevent an export from replacing any source file in the diagnostic/data tree.
         var rootPrefix = Path.TrimEndingDirectorySeparator(Root) + Path.DirectorySeparatorChar;
-        if (target.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Escolha uma pasta fora dos dados locais do Vistora para salvar o ZIP.");
+        if (target.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Escolha uma pasta fora dos dados locais do Jano para salvar o ZIP.");
         var temporary = target + "." + exportId + ".tmp";
         try
         {
