@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Shapes;
 using Vistora.Core;
 
 namespace Vistora.Desktop;
@@ -35,11 +37,24 @@ public static class Tone
     public static StatusTone GetForeground(DependencyObject element) => (StatusTone)element.GetValue(ForegroundProperty);
     public static void SetForeground(DependencyObject element, StatusTone value) => element.SetValue(ForegroundProperty, value);
 
-    // Cor do texto de um RunState: concluída = sucesso, em execução = texto, interrompida = atenção, demais = erro.
-    public static readonly DependencyProperty RunStateProperty = DependencyProperty.RegisterAttached("RunState", typeof(RunState),
-        typeof(Tone), new PropertyMetadata(RunState.Running, (d, e) => PaintText(d, StatusTones.For((RunState)e.NewValue))));
-    public static RunState GetRunState(DependencyObject element) => (RunState)element.GetValue(RunStateProperty);
-    public static void SetRunState(DependencyObject element, RunState value) => element.SetValue(RunStateProperty, value);
+    // Ponto de estado ao lado de uma mensagem: a cor cheia do StatusTone (em execução, a cor de ação).
+    public static readonly DependencyProperty DotProperty = DependencyProperty.RegisterAttached("Dot", typeof(StatusTone?),
+        typeof(Tone), new PropertyMetadata(null, (d, e) => { if (e.NewValue is StatusTone tone) Paint(d, DotKeyFor(tone), KeyFor(tone)); }));
+    public static StatusTone? GetDot(DependencyObject element) => (StatusTone?)element.GetValue(DotProperty);
+    public static void SetDot(DependencyObject element, StatusTone? value) => element.SetValue(DotProperty, value);
+
+    // Cor de um pavimento pela etapa: fechado = sucesso, aberto a em atendimento = ação, pendente = neutro.
+    // Pinta o texto de um TextBlock, um ponto (Shape) ou o fundo de um Border.
+    public static readonly DependencyProperty StageColorProperty = DependencyProperty.RegisterAttached("StageColor", typeof(FloorStage?),
+        typeof(Tone), new PropertyMetadata(null, (d, e) => { if (e.NewValue is FloorStage stage) PaintStage(d, stage); }));
+    public static FloorStage? GetStageColor(DependencyObject element) => (FloorStage?)element.GetValue(StageColorProperty);
+    public static void SetStageColor(DependencyObject element, FloorStage? value) => element.SetValue(StageColorProperty, value);
+
+    // Selo de resultado de uma visita (Border com o texto dentro): concluída, em execução, interrompida ou com erro.
+    public static readonly DependencyProperty BadgeProperty = DependencyProperty.RegisterAttached("Badge", typeof(RunState?),
+        typeof(Tone), new PropertyMetadata(null, (d, e) => { if (e.NewValue is RunState state) PaintBadge((Border)d, StatusTones.For(state)); }));
+    public static RunState? GetBadge(DependencyObject element) => (RunState?)element.GetValue(BadgeProperty);
+    public static void SetBadge(DependencyObject element, RunState? value) => element.SetValue(BadgeProperty, value);
 
     // Segmento n (1 a 4) do indicador de etapa: azul enquanto o chamado avança, verde quando fecha, trilho se ainda não chegou.
     public static readonly DependencyProperty StageProperty = DependencyProperty.RegisterAttached("Stage", typeof(FloorStage),
@@ -61,14 +76,57 @@ public static class Tone
         _ => "AppTextPrimaryBrush"
     };
 
+    private static string DotKeyFor(StatusTone tone) => tone switch
+    {
+        StatusTone.Muted => "AppTextMutedBrush",
+        StatusTone.Success => "AppSuccessBrush",
+        StatusTone.Attention => "AppAttentionBrush",
+        StatusTone.Danger => "AppDangerBrush",
+        _ => "AppBrandAccentBrush"
+    };
+
     private static void PaintText(DependencyObject element, StatusTone tone) =>
         ((FrameworkElement)element).SetResourceReference(TextElement.ForegroundProperty, KeyFor(tone));
+
+    private static void PaintStage(DependencyObject element, FloorStage stage)
+    {
+        var (fill, text) = stage switch
+        {
+            FloorStage.Closed => ("AppSuccessBrush", "AppSuccessTextBrush"),
+            FloorStage.Pending => ("AppTextMutedBrush", "AppTextMutedBrush"),
+            _ => ("AppBrandAccentBrush", "AppAccentTextBrush")
+        };
+        Paint(element, fill, text);
+    }
+
+    // Um TextBlock recebe a cor de texto; um ponto ou um segmento, a cor cheia.
+    private static void Paint(DependencyObject element, string fill, string text)
+    {
+        switch (element)
+        {
+            case TextBlock block: block.SetResourceReference(TextElement.ForegroundProperty, text); break;
+            case Shape shape: shape.SetResourceReference(Shape.FillProperty, fill); break;
+            case Border border: border.SetResourceReference(Border.BackgroundProperty, fill); break;
+        }
+    }
+
+    private static void PaintBadge(Border badge, StatusTone tone)
+    {
+        var name = tone switch
+        {
+            StatusTone.Success => "Success", StatusTone.Attention => "Warning", StatusTone.Danger => "Danger",
+            StatusTone.Text => "Info", _ => "Neutral"
+        };
+        badge.SetResourceReference(Border.BackgroundProperty, $"AppBadge{name}BackgroundBrush");
+        badge.SetResourceReference(Border.BorderBrushProperty, $"AppBadge{name}BorderBrush");
+        badge.SetResourceReference(TextElement.ForegroundProperty, $"AppBadge{name}ForegroundBrush");
+    }
 
     private static void PaintSegment(DependencyObject element)
     {
         var stage = GetStage(element);
         var key = (int)stage < GetSegment(element) ? "AppTrackBrush"
             : stage == FloorStage.Closed ? "AppSuccessBrush" : "AppBrandAccentBrush";
-        ((FrameworkElement)element).SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, key);
+        ((FrameworkElement)element).SetResourceReference(Border.BackgroundProperty, key);
     }
 }

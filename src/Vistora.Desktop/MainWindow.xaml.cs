@@ -12,13 +12,14 @@ public partial class MainWindow : JanoWindow
     private bool closing;
     public MainViewModel ViewModel { get; }
 
-    private sealed record PageInfo(string Name, string Title, string Subtitle);
+    // Glyph: ícone da Segoe MDL2 Assets ao lado do nome na navegação.
+    private sealed record PageInfo(string Name, string Title, string Subtitle, string Glyph);
     private static readonly PageInfo[] PageList =
     [
-        new("Executar visita", "Executar visita preventiva", "Escolha a unidade e os pavimentos que você visitou."),
-        new("Perfis e pavimentos", "Perfis e pavimentos", "Organize os dados de cada solicitante e unidade."),
-        new("Histórico", "Histórico de visitas", "Confira os chamados e os resultados de cada visita."),
-        new("Configurações", "Configurações", "Defina onde a automação deve abrir os chamados.")
+        new("Executar visita", "Executar visita preventiva", "Escolha a unidade e os pavimentos que você visitou.", ""),
+        new("Perfis e pavimentos", "Perfis e pavimentos", "Organize os dados de cada solicitante e unidade.", ""),
+        new("Histórico", "Histórico de visitas", "Confira os chamados e os resultados de cada visita.", ""),
+        new("Configurações", "Configurações", "Defina onde a automação deve abrir os chamados.", "")
     ];
 
     public MainWindow(MainViewModel viewModel, int startPage = 0)
