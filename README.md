@@ -6,11 +6,6 @@
   Automação de chamados de visitas preventivas no Jira, com execução pelo Microsoft Edge.
 </p>
 
-<p align="center">
-  <img src="assets/screenshots/executar-visita.png" alt="Tela Executar visita com pavimentos e uma visita pendente" width="49%" />
-  <img src="assets/screenshots/historico.png" alt="Histórico de visitas com resultados e etapas dos chamados" width="49%" />
-</p>
-
 ---
 
 ## Sobre o projeto
