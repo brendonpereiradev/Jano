@@ -93,8 +93,8 @@ Na versão 2.0.0 o projeto recebeu um rework visual para se alinhar aos outros p
 
 ## Documentação
 
-- [Documentação (MD)](<guides/Documentação (MD).md>): instalação, configuração de unidades, execução, retomada, diagnóstico, limpeza do histórico e problemas comuns.
-- [Documentação (PDF)](<guides/Documentação (PDF).pdf>): o mesmo conteúdo em formato para imprimir ou compartilhar.
+- [Documentação (MD)](<guides/Documentação (MD).md>)
+- [Documentação (PDF)](<guides/Documentação (PDF).pdf>)
 
 ---
 
