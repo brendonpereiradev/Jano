@@ -9,7 +9,7 @@ using Vistora.Core;
 
 namespace Vistora.Desktop;
 
-public partial class ProfileWindow : Window
+public partial class ProfileWindow : JanoWindow
 {
     public VisitProfile Profile { get; }
     private readonly ObservableCollection<Floor> floors;
@@ -23,7 +23,7 @@ public partial class ProfileWindow : Window
         InitializeComponent();
         Profile = Serialization.Copy(profile);
         original = JsonSerializer.Serialize(Profile, Serialization.Options);
-        ConfirmDiscard = () => MessageBox.Show(this, "Descartar as alterações deste perfil?", "Vistora",
+        ConfirmDiscard = () => MessageWindow.Show(this, "Descartar as alterações deste perfil?", "Descartar alterações",
             MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
         Closing += ConfirmClosing;
         DataContext = Profile;

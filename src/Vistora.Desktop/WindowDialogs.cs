@@ -38,8 +38,6 @@ public sealed class WindowDialogs(Func<Window?> owner, DiagnosticService diagnos
 
     public Task ExportLogAsync(VisitRun? run) => DiagnosticExportUi.ExportAsync(Owner!, diagnostics, run);
 
-    private MessageBoxResult Show(string message, MessageBoxButton buttons, MessageBoxImage image, string title = "Vistora",
-        MessageBoxResult defaultResult = MessageBoxResult.None) => Owner is { } window
-        ? MessageBox.Show(window, message, title, buttons, image, defaultResult)
-        : MessageBox.Show(message, title, buttons, image, defaultResult);
+    private MessageBoxResult Show(string message, MessageBoxButton buttons, MessageBoxImage image, string title = "",
+        MessageBoxResult defaultResult = MessageBoxResult.None) => MessageWindow.Show(Owner, message, title, buttons, image, defaultResult);
 }

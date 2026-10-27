@@ -1,14 +1,12 @@
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Documents;
-using System.Windows.Interop;
 using Vistora.Core;
 
 namespace Vistora.Desktop;
 
 /// <summary>
-/// Tema claro ou escuro: troca o dicionário de cores em App.xaml e escurece a barra de título do Windows.
-/// Tudo o que muda com o tema lê as cores por DynamicResource, então a troca vale na hora para as janelas abertas.
+/// Tema claro ou escuro: troca o dicionário de cores em App.xaml. Tudo o que muda com o tema lê as cores
+/// por DynamicResource, inclusive a barra de título de JanoWindow, então a troca vale na hora para as janelas abertas.
 /// </summary>
 public static class Theme
 {
@@ -22,25 +20,7 @@ public static class Theme
         var name = theme == AppTheme.Dark ? "Dark" : "Light";
         dictionaries[index] = new ResourceDictionary { Source = new Uri($"/{Assembly};component/Themes/ThemeTokens.{name}.xaml", UriKind.Relative) };
         Current = theme;
-        foreach (Window window in Application.Current.Windows) ApplyTitleBar(window);
     }
-
-    /// <summary>Faz cada janela nova seguir o tema na barra de título. Chamado uma vez, na inicialização.</summary>
-    public static void FollowNewWindows() =>
-        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent, new RoutedEventHandler((sender, _) => ApplyTitleBar((Window)sender)));
-
-    // A barra de título continua sendo do Windows; no tema escuro ela é pedida escura (Windows 10 20H1 ou mais novo).
-    private static void ApplyTitleBar(Window window)
-    {
-        var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero) return;
-        var dark = Current == AppTheme.Dark ? 1 : 0;
-        _ = DwmSetWindowAttribute(handle, UseImmersiveDarkMode, ref dark, sizeof(int));
-    }
-
-    private const int UseImmersiveDarkMode = 20;
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 }
 
 /// <summary>

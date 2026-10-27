@@ -1,4 +1,4 @@
-<Window x:Class="Vistora.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Vistora.Desktop" Title="Vistora — Visitas preventivas" Width="1180" Height="820" MinWidth="1000" MinHeight="700" WindowStartupLocation="CenterScreen" Closing="WindowClosing">
+<local:JanoWindow x:Class="Vistora.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Vistora.Desktop" Title="Vistora — Visitas preventivas" ShowThemeToggle="True" IsBusy="{Binding HasActiveWork}" Width="1180" Height="820" MinWidth="1000" MinHeight="700" WindowStartupLocation="CenterScreen" Closing="WindowClosing">
   <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <Border Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppSurfaceCardBorderBrush}" BorderThickness="0,0,1,0">
@@ -169,4 +169,4 @@
       <TextBlock x:Name="DiagnosticWarning" Grid.Row="2" Text="{Binding DiagnosticWarning}" TextWrapping="Wrap" Foreground="{DynamicResource AppAttentionTextBrush}" Margin="0,14,0,0" Visibility="{Binding HasDiagnosticWarning, Converter={StaticResource Visible}}"/>
     </Grid>
   </Grid>
-</Window>
+</local:JanoWindow>

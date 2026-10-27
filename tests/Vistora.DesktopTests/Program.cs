@@ -45,6 +45,8 @@ internal static class Program
             ("Configurações recusam endereço inválido e salvam o corrigido", SettingsValidation),
             ("Tema escuro vale na hora, inclusive nas cores de estado, e fica salvo", ThemeSwitch),
             ("Confirmação de exclusão usa Cancelar como padrão", DangerConfirmDefaults),
+            ("Barra de título traz a marca, o tema e o emblema ativo durante o trabalho", TitleBar),
+            ("Mensagens próprias mantêm os botões e o padrão da MessageBox", MessageDefaults),
             ("Editor de perfil marca o campo inválido na própria tela", ProfileEditorValidation),
             ("Cancelar o editor com alterações pede confirmação", ProfileEditorUnsavedChanges)
         };
@@ -484,6 +486,8 @@ internal static class Program
 
     private static void ThemeSwitch()
     {
+        // O App destes testes inicia como o aplicativo real e aplica o tema salvo neste computador; o teste parte do claro.
+        Theme.Apply(AppTheme.Light);
         using var fixture = new Fixture([Profile()], [], preview: false); var model = fixture.Model;
         var window = Open(model);
         object Resource(string key) => Application.Current.Resources[key];
@@ -522,6 +526,71 @@ internal static class Program
             Screenshot(dialog, "confirmar-limpeza");
         }
         finally { dialog.Close(); }
+    }
+
+    private static void TitleBar()
+    {
+        Theme.Apply(AppTheme.Light);
+        using var fixture = new Fixture([Profile()], [], preview: false); var model = fixture.Model;
+        var window = Open(model);
+        T Part<T>(string name) => (T)window.Template.FindName(name, window);
+        try
+        {
+            var theme = Part<Button>("ThemeButton");
+            Check(window.ShowThemeToggle && theme.Visibility == Visibility.Visible && Part<Button>("CloseButton").Visibility == Visibility.Visible &&
+                Part<Button>("RestoreButton").Visibility == Visibility.Collapsed && string.IsNullOrEmpty(window.Subtitle),
+                "A barra de título da janela principal não mostrou a troca de tema e os botões da janela.");
+            Click(theme);
+            Check(JanoWindow.ToggleThemeCommand.CanExecute(null, theme) && model.IsDarkTheme && Theme.Current == AppTheme.Dark, "O botão de tema da barra não trocou o tema.");
+            Await(model.ThemeSaved);
+            Check(Await(model.Store.LoadSettingsAsync()).Theme == AppTheme.Dark, "O tema escolhido na barra não foi salvo.");
+            Screenshot(window, "barra-escuro");
+            Click(theme); Await(model.ThemeSaved);
+            Check(!model.IsDarkTheme && Theme.Current == AppTheme.Light, "O botão de tema da barra não voltou ao claro.");
+            model.State = ScreenState.Running;
+            Check(window.IsBusy, "O emblema não acompanhou o trabalho em andamento.");
+            model.State = ScreenState.Idle;
+            Check(!window.IsBusy, "O emblema continuou ativo depois do trabalho.");
+        }
+        finally { window.Close(); Theme.Apply(AppTheme.Light); }
+        var dialog = new DangerConfirmWindow("Limpar histórico", "Apagar?", "Limpar tudo") { ShowActivated = false, ShowInTaskbar = false };
+        try
+        {
+            dialog.Show();
+            var parts = new[] { "ThemeButton", "MinimizeButton", "MaximizeButton" }.Select(n => (Button)dialog.Template.FindName(n, dialog));
+            Check(dialog.Subtitle == "Limpar histórico" && parts.All(b => b.Visibility == Visibility.Collapsed),
+                "A confirmação mostrou botões de tema ou de tamanho, ou ficou sem subtítulo.");
+        }
+        finally { dialog.Close(); }
+    }
+
+    private static void MessageDefaults()
+    {
+        var retry = new MessageWindow("Tentar o fechamento de novo?", "Conferir fechamento pendente", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+        try
+        {
+            var buttons = retry.Buttons;
+            Check(buttons.Select(b => b.Content).SequenceEqual(["Sim", "Não"]) && buttons.Single(b => b.IsDefault).Content.Equals("Não") &&
+                buttons.Single(b => b.IsCancel).Content.Equals("Não") && buttons[1].Style == Application.Current.Resources["Primary"] &&
+                retry.Result == MessageBoxResult.No && retry.Subtitle == "Conferir fechamento pendente",
+                "A pergunta de nova tentativa não manteve Não como padrão e recusa.");
+            Screenshot(retry, "mensagem-pergunta");
+        }
+        finally { retry.Close(); }
+        var warning = new MessageWindow("Aviso.", "", MessageBoxButton.OK, MessageBoxImage.Warning, MessageBoxResult.None);
+        try
+        {
+            Check(warning.Buttons.Single() is { IsDefault: true, IsCancel: true } ok && ok.Content.Equals("OK") && warning.Result == MessageBoxResult.OK &&
+                warning.Title == "Vistora", "O aviso não ficou só com OK, padrão e recusa.");
+        }
+        finally { warning.Close(); }
+        var discard = new MessageWindow("Descartar?", "Descartar alterações", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.None);
+        try
+        {
+            Check(discard.Buttons.Single(b => b.IsDefault).Content.Equals("Sim") && discard.Buttons.Single(b => b.IsCancel).Content.Equals("Cancelar") &&
+                discard.Result == MessageBoxResult.Cancel, "Sim, Não e Cancelar não seguiram o padrão da MessageBox.");
+        }
+        finally { discard.Close(); }
     }
 
     private static void ProfileEditorValidation()
@@ -574,6 +643,14 @@ internal static class Program
         Check(!floors.IsVisible && asked == 2, "Fechar a janela depois de incluir um pavimento não pediu confirmação.");
     }
 
+    // O mesmo caminho de um clique: o botão executa o próprio comando a partir de si. A automação enfileira o clique,
+    // então a fila da interface é esvaziada antes de seguir.
+    private static void Click(Button button)
+    {
+        ((System.Windows.Automation.Provider.IInvokeProvider)new System.Windows.Automation.Peers.ButtonAutomationPeer(button)
+            .GetPattern(System.Windows.Automation.Peers.PatternInterface.Invoke)).Invoke();
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle);
+    }
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
     {
         yield return root;

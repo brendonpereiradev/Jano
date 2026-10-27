@@ -4,7 +4,7 @@ using System.Windows.Controls;
 
 namespace Vistora.Desktop;
 
-public partial class IssueKeyWindow : Window
+public partial class IssueKeyWindow : JanoWindow
 {
     private static readonly Regex KeyPattern = new(@"^[A-Z][A-Z0-9]*-\d+$", RegexOptions.Compiled);
     public string IssueKey { get; private set; } = "";

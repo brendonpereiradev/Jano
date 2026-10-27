@@ -116,6 +116,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (!Set(ref state, value)) return;
             OnPropertyChanged(nameof(IsUnlocked)); OnPropertyChanged(nameof(IsStopVisible)); OnPropertyChanged(nameof(StopLabel));
+            OnPropertyChanged(nameof(HasActiveWork));
             RefreshCommands();
         }
     }
