@@ -188,6 +188,11 @@ static Task ValidateProfile()
     Check(ProfileValidation.Validate(Profile(), settings).Any(e => e.Contains("HTTPS")), "Outro domínio aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("ClosingTeam")), "Equipe de fechamento vazia aceita.");
     Check(ProfileValidation.ValidateSettings(new AppSettings()).Count == 0, "Configuração padrão recusada.");
+    Check(new AppSettings().ClosingTeam == "CTS Field Services", "A equipe padrão não é a exibida pelo Jira.");
+    // Visitas pendentes guardam uma cópia das configurações com o padrão antigo.
+    var legacyRun = JsonSerializer.Deserialize<VisitRun>("""{"Settings":{"ClosingTeam":" field   Services "}}""", Serialization.Options)!;
+    Check(legacyRun.Settings.ClosingTeam == "CTS Field Services", "O padrão antigo da equipe não foi migrado na visita salva.");
+    Check(Serialization.Copy(new AppSettings { ClosingTeam = "Outra Equipe" }).ClosingTeam == "Outra Equipe", "Uma equipe configurada foi substituída.");
     return Task.CompletedTask;
 }
 static Task ValidateJiraWorkflow()

@@ -183,8 +183,8 @@ run.Settings.JiraUrl = $"http://127.0.0.1:{port}";
 run.Settings.PortalUrl = run.Settings.JiraUrl + "/servicedesk/customer/portal/1/group/1/create/1";
 run.Settings.QueueUrl = run.Settings.JiraUrl + "/queue";
 run.Settings.TimeoutSeconds = 10;
-// Valor como pode ficar no settings.json editado à mão; o Jira exibe "Field Services".
-run.Settings.ClosingTeam = "  Field   Services ";
+// Valor como pode ficar no settings.json editado à mão; o Jira exibe "CTS Field Services".
+run.Settings.ClosingTeam = "  CTS   Field Services ";
 var engine = new ExecutionEngine(store, () => new EdgeJiraAutomation(store), diagnostics);
 engine.Progress += r => Console.WriteLine(r.Message);
 var failures = 0;
@@ -333,6 +333,21 @@ try
     });
     Check(rejectedRun.State == RunState.Completed && rejectedRun.Floors[0].IssueKey == rejectedKey && retryConfirmations == 1 && closeRequests == requestsBeforeRetry + 1, rejectedRun.Message);
     Console.WriteLine("PASS: envio rejeitado preserva a pendência e a conferência explícita retoma o mesmo chamado.");
+
+    var teamProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    teamProbe.Settings = Serialization.Copy(run.Settings); teamProbe.Settings.ClosingTeam = "Equipe Inexistente";
+    var closesBeforeTeam = closeRequests;
+    await engine.ExecuteAsync(teamProbe, default);
+    Check(teamProbe.State == RunState.Failed && teamProbe.Floors[0].Stage == FloorStage.Started && closeRequests == closesBeforeTeam,
+        "Equipe ausente do Jira foi enviada ou perdeu a etapa.");
+    using (var summary = JsonDocument.Parse(await File.ReadAllTextAsync(Directory.EnumerateFiles(store.DiagnosticsDirectory(teamProbe.Id), "summary.json", SearchOption.AllDirectories).Single())))
+    {
+        Check(summary.RootElement.GetProperty("errorCode").GetString() == "FIELD_OPTION_NOT_FOUND" && summary.RootElement.GetProperty("failedStep").GetString() == "close.prepare",
+            "Equipe ausente do Jira perdeu a causa técnica ou a etapa.");
+        Check(summary.RootElement.GetProperty("stepDurationsMs").GetProperty("close.prepare").GetDouble() < teamProbe.Settings.TimeoutSeconds * 1000,
+            "Equipe ausente do Jira esperou o tempo limite.");
+    }
+    Console.WriteLine("PASS: equipe ausente das opções do Jira interrompe o fechamento na hora, sem envio.");
 
     missingTransition = true; transitionDelayMs = 0;
     var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
@@ -649,7 +664,7 @@ static class Fixture
           // O Jira antecipa o status e só depois carrega o formulário da transição.
           menu.innerHTML='';document.getElementById('status').textContent=workflow.closed;
           setTimeout(()=>{
-          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Field Services</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
+          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>CTS Field Services</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
           document.getElementById('reply').onclick=()=>dialog.dataset.public='true';
           for(const id of ['resolution','public'])delayedValidation(id);
           document.getElementById('confirm').onclick=async()=>{for(const id of ['resolution','public']){const input=document.getElementById(id);if(input.dataset.committed!==input.value)throw Error('Jira ainda não processou '+id)}if(dialog.dataset.public!=='true')throw Error('Comentário não é público');const resolution=document.getElementById('resolution').value,comment=document.getElementById('public').value,team=document.getElementById('team').value;

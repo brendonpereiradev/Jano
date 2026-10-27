@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Vistora.Core;
 
@@ -58,7 +59,16 @@ public sealed class AppSettings
     public int TimeoutSeconds { get; set; } = 60;
     public int LoginTimeoutMinutes { get; set; } = 15;
     public Dictionary<string, string> SelectorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public string ClosingTeam { get; set; } = "Field Services";
+    public const string DefaultClosingTeam = "CTS Field Services";
+    private string closingTeam = DefaultClosingTeam;
+    // Até a 2.0.1 o padrão era "Field Services", que não existe no Jira. Configurações e visitas
+    // salvas com esse valor passam a usar o nome da equipe como o Jira exibe.
+    public string ClosingTeam
+    {
+        get => closingTeam;
+        set => closingTeam = value is not null && string.Equals(Regex.Replace(value, @"\s+", " ").Trim(), "Field Services", StringComparison.OrdinalIgnoreCase)
+            ? DefaultClosingTeam : value!;
+    }
     public DiagnosticOptions Diagnostics { get; set; } = new();
     // Arquivos anteriores à 2.0.0 não têm o tema e abrem no claro.
     public AppTheme Theme { get; set; } = AppTheme.Light;

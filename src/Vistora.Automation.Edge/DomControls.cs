@@ -101,7 +101,19 @@ internal sealed class DomControls(IPage page, IReadOnlyDictionary<string, string
         var tag = await field.EvaluateAsync<string>("e => e.tagName.toLowerCase()");
         if (tag == "select")
         {
-            await field.SelectOptionAsync(new SelectOptionValue { Label = expected });
+            // As opções de um select já vêm carregadas. Sem a opção, SelectOption esperaria
+            // até o tempo limite; falhar na hora aponta o valor configurado.
+            var options = await field.EvaluateAsync<string[]>("e => Array.from(e.options, o => o.label || o.text || '')");
+            var index = Array.FindIndex(options, o => string.Equals(Normalize(o), Normalize(expected), StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                diagnostics?.Event("control.option_missing", "Opção configurada ausente da lista.", DiagnosticLevel.Warning,
+                    new() { ["controlKey"] = key, ["optionCount"] = options.Length }, errorCode: "FIELD_OPTION_NOT_FOUND");
+                var error = new InvalidOperationException($"“{expected}” não está entre as opções de “{labels[0]}” no Jira. Confira o valor no arquivo settings.json e retome a visita.");
+                error.Data["DiagnosticCode"] = "FIELD_OPTION_NOT_FOUND";
+                throw error;
+            }
+            await field.SelectOptionAsync(new SelectOptionValue { Index = index });
             diagnostics?.Event("control.selected", "Opção selecionada.", DiagnosticLevel.Debug, new() { ["controlKey"] = key });
             return;
         }
