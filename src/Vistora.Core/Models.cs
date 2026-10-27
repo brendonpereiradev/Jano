@@ -60,6 +60,8 @@ public sealed class AppSettings
     public Dictionary<string, string> SelectorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string ClosingTeam { get; set; } = "Field Services";
     public DiagnosticOptions Diagnostics { get; set; } = new();
+    // Arquivos anteriores à 2.0.0 não têm o tema e abrem no claro.
+    public AppTheme Theme { get; set; } = AppTheme.Light;
     private JiraWorkflow jira = new();
     // Arquivos anteriores à 1.3.0 não têm esta seção e recebem os valores padrão.
     public JiraWorkflow Jira { get => jira; set => jira = value ?? new(); }
@@ -80,6 +82,7 @@ public sealed class JiraWorkflow
 }
 
 public enum FloorStage { Pending, Created, Assigned, Started, Closed }
+public enum AppTheme { Light, Dark }
 public enum PendingAction { None, Create, Assign, Start, Close }
 public enum RunState { Running, Interrupted, Failed, NeedsReconciliation, Completed }
 

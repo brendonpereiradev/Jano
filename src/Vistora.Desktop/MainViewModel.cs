@@ -11,17 +11,17 @@ namespace Vistora.Desktop;
 /// <summary>O que a tela principal está fazendo; define quais ações ficam disponíveis.</summary>
 public enum ScreenState { Loading, Idle, Running, Stopping, Cleaning }
 
-/// <summary>Cor de um texto de status, resolvida pela janela com os recursos de mesmo nome em App.xaml.</summary>
-public enum StatusTone { Ink, Muted, Teal, Amber, Red }
+/// <summary>Cor de um texto de status; a janela a resolve com o pincel do tema atual (Tone.KeyFor).</summary>
+public enum StatusTone { Text, Muted, Success, Attention, Danger }
 
 public static class StatusTones
 {
     public static StatusTone For(RunState state) => state switch
     {
-        RunState.Completed => StatusTone.Teal,
-        RunState.Running => StatusTone.Ink,
-        RunState.Interrupted => StatusTone.Amber,
-        _ => StatusTone.Red
+        RunState.Completed => StatusTone.Success,
+        RunState.Running => StatusTone.Text,
+        RunState.Interrupted => StatusTone.Attention,
+        _ => StatusTone.Danger
     };
 }
 
@@ -225,6 +225,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private StatusTone settingsStatusTone;
     public StatusTone SettingsStatusTone { get => settingsStatusTone; private set => Set(ref settingsStatusTone, value); }
 
+    // Aparência: vale na hora e é salva sozinha, sem depender de Salvar configurações nem dos endereços digitados.
+    private AppTheme theme = AppTheme.Light;
+    public bool IsDarkTheme
+    {
+        get => theme == AppTheme.Dark;
+        set
+        {
+            var next = value ? AppTheme.Dark : AppTheme.Light;
+            if (theme == next) return;
+            theme = next; OnPropertyChanged(nameof(IsDarkTheme));
+            if (State != ScreenState.Loading && !IsPreview) ThemeSaved = SaveThemeAsync(next);
+        }
+    }
+    /// <summary>A gravação do último tema escolhido; os testes esperam por ela.</summary>
+    internal Task ThemeSaved { get; private set; } = Task.CompletedTask;
+
+    private Task SaveThemeAsync(AppTheme value) => SafeAsync(async () =>
+    {
+        settings.Theme = value;
+        await store.SaveSettingsAsync(Serialization.Copy(settings));
+    });
+
     public async Task LoadAsync()
     {
         try
@@ -235,6 +257,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 profiles = await store.LoadProfilesAsync(); settings = await store.LoadSettingsAsync(); runs = await store.LoadRunsAsync();
                 settings.Diagnostics ??= new DiagnosticOptions();
                 diagnostics.Configure(settings.Diagnostics);
+                theme = settings.Theme; OnPropertyChanged(nameof(IsDarkTheme));
                 diagnostics.Register(profiles);
                 if (profiles.Profiles.Count == 0)
                 {
@@ -400,9 +423,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     // A mensagem salva pelo motor explica o passo atual, o pedido de login e o motivo de uma falha.
-    private void ShowRunStatus(VisitRun? run) => ShowStatus(run?.Message, run is null ? StatusTone.Ink : StatusTones.For(run.State));
+    private void ShowRunStatus(VisitRun? run) => ShowStatus(run?.Message, run is null ? StatusTone.Text : StatusTones.For(run.State));
 
-    private void ShowStatus(string? text, StatusTone tone = StatusTone.Ink)
+    private void ShowStatus(string? text, StatusTone tone = StatusTone.Text)
     {
         Status = text ?? "";
         StatusTone = tone;
@@ -455,7 +478,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (ActiveProfile is null) throw new InvalidOperationException("Escolha um perfil ou uma visita pendente para continuar.");
         var errors = ProfileValidation.Validate(ActiveProfile, settings);
         // Os campos a corrigir ficam no painel de status, um por linha, em vez de numa janela.
-        if (errors.Count > 0) { ShowStatus(string.Join(Environment.NewLine, errors), StatusTone.Red); return; }
+        if (errors.Count > 0) { ShowStatus(string.Join(Environment.NewLine, errors), StatusTone.Danger); return; }
         await store.SaveProfilesAsync(profiles);
         var run = ProfileValidation.CreateRun(ActiveProfile, settings);
         await store.SaveRunAsync(run);
@@ -511,18 +534,18 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 OnUi(() => ShowStatus(message));
             }, token);
             diagnostics.AppEvent("access.confirmed", "Acesso ao formulário confirmado.");
-            ShowStatus("Acesso confirmado: o formulário de visita preventiva carregou no Edge.", StatusTone.Teal);
+            ShowStatus("Acesso confirmado: o formulário de visita preventiva carregou no Edge.", StatusTone.Success);
         }
         // O resultado fica no painel de status; uma janela de erro repetiria a mesma informação.
         catch (OperationCanceledException)
         {
             diagnostics.AppEvent("access.cancelled", "Verificação de acesso interrompida.");
-            ShowStatus("Verificação de acesso interrompida.", StatusTone.Amber);
+            ShowStatus("Verificação de acesso interrompida.", StatusTone.Attention);
         }
         catch (Exception ex)
         {
             diagnostics.AppEvent("access.failed", "Não foi possível confirmar o acesso.", DiagnosticLevel.Error, ex, code: "ACCESS_CHECK_FAILED");
-            ShowStatus("Não foi possível confirmar o acesso. " + ex.Message, StatusTone.Red);
+            ShowStatus("Não foi possível confirmar o acesso. " + ex.Message, StatusTone.Danger);
         }
     }
 
@@ -550,9 +573,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (failure is null)
         {
             diagnostics.AppEvent("run.discarded", "Visita pendente sem chamados descartada.");
-            ShowStatus("Visita descartada. O perfil já pode iniciar uma nova visita.", StatusTone.Teal);
+            ShowStatus("Visita descartada. O perfil já pode iniciar uma nova visita.", StatusTone.Success);
         }
-        else ShowStatus("Não foi possível descartar a visita. " + failure.Message, StatusTone.Red);
+        else ShowStatus("Não foi possível descartar a visita. " + failure.Message, StatusTone.Danger);
     }
 
     // Perfis
@@ -615,7 +638,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         HistoryFloors = run?.Floors.ToList();
         SelectedHistoryFloor = run?.Floors.FirstOrDefault(f => f.Floor.Id == selectedFloorId) ?? run?.Floors.FirstOrDefault();
         HistoryMessage = run?.Message ?? "";
-        HistoryMessageTone = run is null ? StatusTone.Ink : StatusTones.For(run.State);
+        HistoryMessageTone = run is null ? StatusTone.Text : StatusTones.For(run.State);
     }
 
     public async Task ExportLogAsync()
@@ -652,7 +675,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
             RefreshProfiles(profiles.ActiveProfileId); RefreshHistory();
             activeTask = null; State = ScreenState.Idle;
         }
-        HistoryStatusTone = failure is null ? StatusTone.Teal : StatusTone.Red;
+        HistoryStatusTone = failure is null ? StatusTone.Success : StatusTone.Danger;
         HistoryStatus = failure is null
             ? "Histórico, pendências, logs e capturas das visitas removidos."
             : "A limpeza ficou incompleta. Os registros restantes foram mantidos. Tente novamente. " + failure.Message;
@@ -680,7 +703,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private void ShowSettingsStatus(string text, bool error)
     {
         SettingsStatus = text;
-        SettingsStatusTone = error ? StatusTone.Red : StatusTone.Teal;
+        SettingsStatusTone = error ? StatusTone.Danger : StatusTone.Success;
     }
 
     // Encerramento: a etapa em andamento termina e os registros são gravados antes de fechar.

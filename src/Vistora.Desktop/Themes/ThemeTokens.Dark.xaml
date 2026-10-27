@@ -1,0 +1,58 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    Tema escuro: superfícies e acento do Talos, os mesmos valores de ThemeTokens.Dark.xaml do Hermes.
+    Os neutros ficam no matiz azul-ardósia, em três profundidades: campo (mais fundo) < janela < painel.
+    Mesmas chaves de ThemeTokens.Light.xaml.
+  -->
+
+  <!-- Janela e moldura (navegação lateral) -->
+  <SolidColorBrush x:Key="AppCanvasBackgroundBrush" Color="#FF101318"/>
+  <SolidColorBrush x:Key="AppChromeBrush" Color="#FF14171D"/>
+  <SolidColorBrush x:Key="AppNavHoverBrush" Color="#FF1A1F27"/>
+  <SolidColorBrush x:Key="AppNavSelectedBrush" Color="#FF1F242D"/>
+
+  <!-- Painéis -->
+  <SolidColorBrush x:Key="AppSurfaceCardBrush" Color="#FF181C23"/>
+  <SolidColorBrush x:Key="AppSurfaceCardBorderBrush" Color="#FF262C36"/>
+  <SolidColorBrush x:Key="AppSurfaceHoverBrush" Color="#FF1F242D"/>
+  <SolidColorBrush x:Key="AppLineStrongBrush" Color="#FF333B47"/>
+
+  <!-- Campos de entrada: afundados em relação ao painel -->
+  <SolidColorBrush x:Key="AppInputBackgroundBrush" Color="#FF0E1116"/>
+  <SolidColorBrush x:Key="AppInputBorderBrush" Color="#FF333B47"/>
+  <SolidColorBrush x:Key="AppInputHoverBorderBrush" Color="#FF4A5361"/>
+
+  <!-- Texto -->
+  <SolidColorBrush x:Key="AppTextPrimaryBrush" Color="#FFE6E9EE"/>
+  <SolidColorBrush x:Key="AppTextSecondaryBrush" Color="#FF98A2B0"/>
+  <SolidColorBrush x:Key="AppTextMutedBrush" Color="#FF7A8494"/>
+
+  <!-- Acento -->
+  <SolidColorBrush x:Key="AppBrandAccentBrush" Color="#FF4C8DF6"/>
+  <SolidColorBrush x:Key="AppAccentHoverBrush" Color="#FF639CF7"/>
+  <SolidColorBrush x:Key="AppAccentPressedBrush" Color="#FF3F7EE6"/>
+  <SolidColorBrush x:Key="AppAccentForegroundBrush" Color="#FF0B1220"/>
+  <SolidColorBrush x:Key="AppAccentTextBrush" Color="#FF8DB5FA"/>
+  <SolidColorBrush x:Key="AppFocusRingBrush" Color="#FF4C8DF6"/>
+
+  <!-- Tabelas e listas -->
+  <SolidColorBrush x:Key="AppTableHoverBrush" Color="#FF1C2129"/>
+  <SolidColorBrush x:Key="AppTableRowSelectedBrush" Color="#FF1E2836"/>
+  <SolidColorBrush x:Key="AppTableDividerBrush" Color="#FF20252D"/>
+
+  <!-- Trilho: fundo da barra de progresso, segmentos de etapa ainda não alcançados e barra de rolagem -->
+  <SolidColorBrush x:Key="AppTrackBrush" Color="#FF2A313C"/>
+  <SolidColorBrush x:Key="AppScrollThumbBrush" Color="#FF3A4350"/>
+
+  <!-- Estados -->
+  <SolidColorBrush x:Key="AppSuccessBrush" Color="#FF3DD68C"/>
+  <SolidColorBrush x:Key="AppSuccessTextBrush" Color="#FF3DD68C"/>
+  <SolidColorBrush x:Key="AppAttentionBrush" Color="#FFF2C14E"/>
+  <SolidColorBrush x:Key="AppAttentionTextBrush" Color="#FFF2C14E"/>
+  <SolidColorBrush x:Key="AppDangerBrush" Color="#FFF0605D"/>
+  <SolidColorBrush x:Key="AppDangerTextBrush" Color="#FFF0605D"/>
+  <SolidColorBrush x:Key="AppDangerForegroundBrush" Color="#FF0B1220"/>
+  <SolidColorBrush x:Key="AppDangerSoftBrush" Color="#FF2A181C"/>
+</ResourceDictionary>

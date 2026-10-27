@@ -213,6 +213,9 @@ static async Task LegacyJiraWorkflow()
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": null }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
     Check(loaded.Jira.WaitingStatus == "Aguardando N2" && ProfileValidation.ValidateSettings(loaded).Count == 0, "Seção Jira nula não recebeu os padrões.");
+    Check(loaded.Theme == AppTheme.Light, "Arquivo anterior à 2.0.0, sem o tema, não abriu no claro.");
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Theme": "Dark" }""");
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).Theme == AppTheme.Dark, "O tema escuro salvo não foi lido.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": { "ClosedStatuses": ["Resolvido"], "IssuePath": "/browse/{key}" } }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
     Check(loaded.Jira.ClosedStatuses.SequenceEqual(["Resolvido"]) && loaded.Jira.IssuePath == "/browse/{key}" && loaded.Jira.StartTransition == "Iniciar Atendimento",
