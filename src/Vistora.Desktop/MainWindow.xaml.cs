@@ -7,7 +7,7 @@ using Vistora.Core;
 namespace Vistora.Desktop;
 
 // A janela só cuida da navegação e da aparência; o estado e as regras da tela ficam em MainViewModel.
-public partial class MainWindow : Window
+public partial class MainWindow : JanoWindow
 {
     private bool closing;
     public MainViewModel ViewModel { get; }
@@ -30,6 +30,8 @@ public partial class MainWindow : Window
         RailItems.ItemsSource = PageList;
         SelectPage(startPage);
         // Colunas de DataGrid não herdam o DataContext, então a coluna de escolha acompanha o ViewModel por aqui.
+        // O botão de tema da barra de título passa pelo ViewModel, que aplica e salva a escolha, como a caixa das Configurações.
+        CommandBindings.Add(new System.Windows.Input.CommandBinding(ToggleThemeCommand, (_, _) => viewModel.IsDarkTheme = !viewModel.IsDarkTheme));
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainViewModel.CanChooseFloors)) ShowVisitColumn();

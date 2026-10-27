@@ -1,4 +1,4 @@
-<Window x:Class="Vistora.Desktop.ProfileWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Configurar perfil — Vistora" Width="960" Height="800" MinWidth="820" MinHeight="680" WindowStartupLocation="CenterOwner">
+<local:JanoWindow x:Class="Vistora.Desktop.ProfileWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Vistora.Desktop" Title="Configurar perfil — Vistora" Subtitle="Configurar perfil" Width="960" Height="800" MinWidth="820" MinHeight="680" WindowStartupLocation="CenterOwner">
   <DockPanel Margin="30,26,30,22">
     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,18">
       <TextBlock Text="Perfil da unidade" Style="{StaticResource PageTitle}"/>
@@ -60,4 +60,4 @@
       </TabItem>
     </TabControl>
   </DockPanel>
-</Window>
+</local:JanoWindow>

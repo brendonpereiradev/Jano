@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
 
   <!--
     Tema claro: superfícies do Hefesto com o acento do Hermes, os mesmos valores de ThemeTokens.Light.xaml do Hermes.
@@ -56,4 +57,8 @@
   <SolidColorBrush x:Key="AppDangerTextBrush" Color="#FFB42F2F"/>
   <SolidColorBrush x:Key="AppDangerForegroundBrush" Color="#FFFFFFFF"/>
   <SolidColorBrush x:Key="AppDangerSoftBrush" Color="#FFFCEEEE"/>
+
+  <!-- Troca de tema na barra de título: o ícone e o texto mostram o tema para onde o botão leva -->
+  <sys:String x:Key="AppThemeToggleGlyph">&#xE708;</sys:String>
+  <sys:String x:Key="AppThemeToggleLabel">Usar tema escuro</sys:String>
 </ResourceDictionary>

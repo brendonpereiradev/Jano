@@ -10,7 +10,7 @@ internal static class DiagnosticExportUi
 {
     public static async Task ExportAsync(Window owner, DiagnosticService diagnostics, VisitRun? run = null)
     {
-        var dialog = new Window { Owner = owner, Title = "Exportar log", Width = 510, Height = run is null ? 450 : 380,
+        var dialog = new JanoWindow { Owner = owner, Title = "Exportar log", Subtitle = "Exportar log", Width = 510, SizeToContent = SizeToContent.Height,
             ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(24) };
         panel.Children.Add(new TextBlock { Text = run is null
@@ -45,14 +45,14 @@ internal static class DiagnosticExportUi
         {
             var result = await diagnostics.ExportAsync(file.FileName, run, screenshots.IsChecked == true, label.Text.Trim(),
                 (sessions?.SelectedItem as DiagnosticSession)?.Id);
-            MessageBox.Show(owner, $"Log exportado para:\n{result.Path}\n\nTamanho: {result.Bytes / 1024d:F1} KB.\n" +
+            MessageWindow.Show(owner, $"Log exportado para:\n{result.Path}\n\nTamanho: {result.Bytes / 1024d:F1} KB.\n" +
                 (result.Partial ? "O pacote indica registros ausentes ou uma execução ainda em andamento.\n" : "") +
                 "Você pode anexar este ZIP na conversa para análise.", "Exportar log", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
             diagnostics.AppEvent("export.failed", "Não foi possível exportar o diagnóstico.", DiagnosticLevel.Error, ex, run?.Id, "EXPORT_FAILED");
-            MessageBox.Show(owner, "Não foi possível salvar o pacote. Os logs originais foram preservados.\n" + ex.Message,
+            MessageWindow.Show(owner, "Não foi possível salvar o pacote. Os logs originais foram preservados.\n" + ex.Message,
                 "Exportar log", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }

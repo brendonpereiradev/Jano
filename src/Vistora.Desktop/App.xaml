@@ -1,26 +1,26 @@
 <Application x:Class="Vistora.Desktop.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Vistora.Desktop">
   <Application.Resources>
     <ResourceDictionary>
-      <!-- Marca, cores do tema (Theme.Apply troca o segundo dicionário) e estilos dos controles. -->
+      <!-- Marca, cores do tema (Theme.Apply troca o segundo dicionário), estilos dos controles e moldura das janelas. -->
       <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="Themes/Brand.xaml"/>
         <ResourceDictionary Source="Themes/ThemeTokens.Light.xaml"/>
         <ResourceDictionary Source="Themes/Controls.xaml"/>
+        <ResourceDictionary Source="Themes/Window.xaml"/>
       </ResourceDictionary.MergedDictionaries>
 
       <BooleanToVisibilityConverter x:Key="Visible" />
       <local:FileNameConverter x:Key="FileName" />
 
-      <!-- Ícone e cores do tema em todas as janelas; as janelas próprias mantêm a fonte padrão do WPF, como antes. -->
-      <Style x:Key="WindowIcon" TargetType="Window">
-        <Setter Property="Icon" Value="/Vistora;component/Assets/Branding/vistora-icon.ico"/>
-        <Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/><Setter Property="Background" Value="{DynamicResource AppCanvasBackgroundBrush}"/>
-      </Style>
-      <Style TargetType="Window" BasedOn="{StaticResource WindowIcon}"><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/></Style>
-      <Style TargetType="{x:Type local:MainWindow}" BasedOn="{StaticResource WindowIcon}"/>
-      <Style TargetType="{x:Type local:ProfileWindow}" BasedOn="{StaticResource WindowIcon}"/>
-      <Style TargetType="{x:Type local:IssueKeyWindow}" BasedOn="{StaticResource WindowIcon}"/>
-      <Style TargetType="{x:Type local:DangerConfirmWindow}" BasedOn="{StaticResource WindowIcon}"/>
+      <!--
+        Todas as janelas usam a moldura de JanoWindow. O estilo implícito de um tipo não vale para os derivados,
+        então cada janela própria declara o seu; elas mantêm a fonte padrão do WPF, como antes.
+      -->
+      <Style TargetType="{x:Type local:MainWindow}" BasedOn="{StaticResource JanoWindowStyle}"/>
+      <Style TargetType="{x:Type local:ProfileWindow}" BasedOn="{StaticResource JanoWindowStyle}"/>
+      <Style TargetType="{x:Type local:IssueKeyWindow}" BasedOn="{StaticResource JanoWindowStyle}"/>
+      <Style TargetType="{x:Type local:DangerConfirmWindow}" BasedOn="{StaticResource JanoWindowStyle}"/>
+      <Style TargetType="{x:Type local:MessageWindow}" BasedOn="{StaticResource {x:Type local:JanoWindow}}"/>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

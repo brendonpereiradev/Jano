@@ -20,13 +20,13 @@ public partial class App : Application
         if (!preview)
         {
             instanceMutex = new Mutex(true, "Local\\Vistora.Desktop", out var created);
-            if (!created) { MessageBox.Show("O Vistora já está aberto.", "Vistora"); Shutdown(); return; }
+            if (!created) { MessageWindow.Show(null, "O Vistora já está aberto.", "Aplicativo já aberto", image: MessageBoxImage.Information); Shutdown(); return; }
         }
         diagnostics = new DiagnosticService(preview ? Path.Combine(Path.GetTempPath(), "VistoraPreview", Guid.NewGuid().ToString("N")) : null);
         DispatcherUnhandledException += (_, args) =>
         {
             diagnostics.AppEvent("app.unhandled_error", "Erro não tratado na interface.", DiagnosticLevel.Error, args.Exception, code: "UNHANDLED_UI_ERROR");
-            MessageBox.Show(args.Exception.Message, "Vistora", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageWindow.Show(MainWindow, args.Exception.Message, "Erro inesperado", image: MessageBoxImage.Error);
             args.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -38,7 +38,6 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (_, args) =>
             diagnostics.AppEvent("app.task_error", "Erro em tarefa de segundo plano.", DiagnosticLevel.Error, args.Exception);
         // O tema salvo vale antes da primeira janela, para ela não abrir clara e escurecer depois.
-        Theme.FollowNewWindows();
         Theme.Apply(preview ? (e.Args.Contains("--preview-dark") ? AppTheme.Dark : AppTheme.Light) : SavedTheme(diagnostics));
         var pageIndex = Array.IndexOf(e.Args, "--preview-page");
         var page = preview && pageIndex >= 0 && e.Args.Length > pageIndex + 1 && int.TryParse(e.Args[pageIndex + 1], out var n) ? n : 0;
@@ -53,7 +52,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             diagnostics.AppEvent("app.startup_failed", "Não foi possível iniciar o aplicativo.", DiagnosticLevel.Error, ex, code: "STARTUP_FAILED");
-            var emergency = new Window { Title = "Vistora — diagnóstico", Width = 540, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+            var emergency = new JanoWindow { Title = "Vistora — diagnóstico", Subtitle = "Diagnóstico", Width = 540, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterScreen };
             var panel = new StackPanel { Margin = new Thickness(24) };
             panel.Children.Add(new TextBlock { Text = "Não foi possível iniciar o Vistora. Os dados locais foram preservados. Os registros disponíveis ficam na pasta de logs do aplicativo.", TextWrapping = TextWrapping.Wrap });
             emergency.Content = panel; MainWindow = emergency; emergency.Show(); return;
@@ -68,13 +67,9 @@ public partial class App : Application
             {
                 await Task.Delay(500);
                 window.UpdateLayout();
-                var client = (FrameworkElement)window.Content;
-                var bitmap = new RenderTargetBitmap((int)client.ActualWidth, (int)client.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-                var background = new DrawingVisual();
-                using (var drawing = background.RenderOpen())
-                    drawing.DrawRectangle(window.Background ?? Brushes.White, null, new Rect(0, 0, client.ActualWidth, client.ActualHeight));
-                bitmap.Render(background);
-                bitmap.Render(client);
+                // A barra de título é desenhada pelo próprio aplicativo, então a captura pega a janela inteira.
+                var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(window);
                 var pathIndex = Array.IndexOf(e.Args, "--preview");
                 var path = e.Args.Length > pathIndex + 1 ? e.Args[pathIndex + 1] : "vistora-preview.png";
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
