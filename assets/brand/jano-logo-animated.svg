@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 128" role="img" aria-labelledby="t">
+  <title id="t">Jano, visitas preventivas</title>
+  <style>
+    /* O portal se ergue e, pavimento por pavimento, de baixo para cima, cada chamado abre (azul) e fecha (menta). */
+    .draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.6s ease-out forwards; }
+    .sill { animation-delay: 0s; animation-duration: 0.35s; }
+    .arch { animation-delay: 0.2s; }
+    .key { opacity: 0; animation: pop 0.25s ease-out 0.75s forwards; }
+    .pair { transform-box: fill-box; transform-origin: left center; transform: scaleX(0); animation: grow 0.2s ease-out forwards; }
+    .o1 { animation-delay: 0.95s; } .c1 { animation-delay: 1.1s; }
+    .o2 { animation-delay: 1.25s; } .c2 { animation-delay: 1.4s; }
+    .o3 { animation-delay: 1.55s; } .c3 { animation-delay: 1.7s; }
+    .name { opacity: 0; animation: enter 0.6s ease-out 1.8s forwards; }
+    .tag { opacity: 0; animation: enter 0.6s ease-out 2.0s forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes pop { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes grow { to { transform: scaleX(1); } }
+    @keyframes enter { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+    @media (prefers-reduced-motion: reduce) {
+      .draw { animation: none; stroke-dashoffset: 0; }
+      .key, .name, .tag { animation: none; opacity: 1; }
+      .pair { animation: none; transform: none; }
+    }
+  </style>
+  <rect width="460" height="128" fill="#101318"/>
+  <defs>
+    <linearGradient id="jn-tile" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f2530"/>
+      <stop offset="1" stop-color="#101318"/>
+    </linearGradient>
+  </defs>
+  <!-- Emblema -->
+  <rect width="128" height="128" rx="28" fill="url(#jn-tile)"/>
+  <rect x="1.5" y="1.5" width="125" height="125" rx="26.5" fill="none" stroke="#4c8df6" stroke-opacity="0.4" stroke-width="3"/>
+  <path class="draw sill" pathLength="1" d="M28 108 H100" stroke="#98a2b0" stroke-width="5" stroke-linecap="round"/>
+  <path class="draw arch" pathLength="1" d="M38 100 V60 A26 26 0 0 1 90 60 V100" fill="none" stroke="#e6e9ee" stroke-width="7" stroke-linecap="round"/>
+  <circle class="key" cx="64" cy="46" r="4" fill="#e6e9ee"/>
+  <path class="pair o1" d="M50 88 H58" stroke="#4c8df6" stroke-width="6" stroke-linecap="round"/>
+  <path class="pair c1" d="M70 88 H78" stroke="#7fd1be" stroke-width="6" stroke-linecap="round"/>
+  <path class="pair o2" d="M50 74 H58" stroke="#4c8df6" stroke-width="6" stroke-linecap="round"/>
+  <path class="pair c2" d="M70 74 H78" stroke="#7fd1be" stroke-width="6" stroke-linecap="round"/>
+  <path class="pair o3" d="M50 60 H58" stroke="#4c8df6" stroke-width="6" stroke-linecap="round"/>
+  <path class="pair c3" d="M70 60 H78" stroke="#7fd1be" stroke-width="6" stroke-linecap="round"/>
+  <!-- Nome -->
+  <text class="name" x="156" y="74" font-family="Bahnschrift, 'Barlow Semi Condensed', 'Segoe UI', sans-serif" font-size="58" font-weight="600" letter-spacing="18" fill="#e6e9ee">JANO</text>
+  <text class="tag" x="158" y="103" font-family="Consolas, 'Cascadia Mono', ui-monospace, monospace" font-size="15" letter-spacing="5.4" fill="#8db5fa">VISITAS PREVENTIVAS</text>
+</svg>
