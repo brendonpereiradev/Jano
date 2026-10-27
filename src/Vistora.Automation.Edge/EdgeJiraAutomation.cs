@@ -501,7 +501,13 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             throw new InvalidOperationException($"{floor.IssueKey}: confira o início do atendimento antes do fechamento.");
         var closeTransition = DomControls.Normalize(Workflow.CloseTransition);
         await OpenTransitionAsync("issue.close", closeTransition, cancellationToken);
-        var dialog = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true });
+        // Outros diálogos podem estar abertos antes do formulário carregar: o aviso de cookies
+        // de um perfil novo do Edge ou o próprio painel do chamado. O formulário de fechamento
+        // é o diálogo com o botão da transição e sem o controle de status.
+        var submit = settings.SelectorOverrides.TryGetValue("close.submit", out var submitSelector)
+            ? Page.Locator(submitSelector) : Page.GetByRole(AriaRole.Button, new() { Name = closeTransition, Exact = true });
+        var dialog = Page.GetByRole(AriaRole.Dialog).Filter(new() { Visible = true, HasNot = await StatusButtonLocatorAsync() })
+            .Filter(new() { Has = submit });
         await dialog.First.WaitForAsync();
         dialog = await DomControls.UniqueAsync(dialog, "Fechamento");
         using var mutations = new MutationTracker(Page, settings.JiraUrl);

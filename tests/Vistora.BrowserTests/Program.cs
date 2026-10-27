@@ -595,6 +595,8 @@ static class Fixture
       const key='SD-'+(1001+Object.keys(issues).length);issues[key]={...data,status:workflow.waiting,assignee:'Unassigned',resolution:'',comment:'',team:'',commentCount:0};persist();location.href='/jira/servicedesk/projects/SD/queues/issue/'+key};
     }else{
       const issue=issues[issueKey];if(!issue){main.innerHTML='<h1>Chamado não encontrado</h1>'}else{
+      // Perfil novo do Edge: o aviso de cookies da Atlassian fica aberto como diálogo.
+      const cookies=document.createElement('div');cookies.setAttribute('role','dialog');cookies.setAttribute('aria-label','Aviso de cookies');cookies.innerHTML='<p>A Atlassian usa cookies.</p><button>Apenas o necessário</button><button>Aceitar tudo</button>';document.body.prepend(cookies);
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')||workflow.plainStatus?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
       ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
@@ -644,6 +646,9 @@ static class Fixture
           }else submitStart();
         }}
         else if(issue.status===workflow.inProgress){menu.innerHTML=`<button id="close">${escape(workflow.close)}</button>`;document.getElementById('close').onclick=()=>{
+          // O Jira antecipa o status e só depois carrega o formulário da transição.
+          menu.innerHTML='';document.getElementById('status').textContent=workflow.closed;
+          setTimeout(()=>{
           const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Field Services</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
           document.getElementById('reply').onclick=()=>dialog.dataset.public='true';
           for(const id of ['resolution','public'])delayedValidation(id);
@@ -651,6 +656,7 @@ static class Fixture
           // O status muda antes da resposta do servidor. Navegar agora perde o fechamento.
           document.getElementById('status').textContent=workflow.closed;if(issueKey.endsWith('1'))dialog.close();
           const response=await fetch('/fixture/close',{method:'POST'});if(!response.ok){document.getElementById('status').textContent=issue.status;if(!dialog.open)dialog.showModal();return}issue.resolution=resolution;issue.comment=comment;issue.team=team;issue.commentCount++;issue.status=workflow.closed;persist();location.reload()}
+          },600);
         }};
         },transitionDelayMs);
       }
