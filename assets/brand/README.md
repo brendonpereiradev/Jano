@@ -7,7 +7,7 @@ Jano é o nome de produto do antigo Vistora desde a versão 2.0.0: janelas, íco
 | `jano-mark.svg` | Símbolo quadrado (ícone, avatar). |
 | `jano-logo-dark.svg` | Símbolo + nome sobre fundo escuro `#101318`. |
 | `jano-logo-light.svg` | Símbolo + nome com fundo transparente, para superfícies claras. |
-| `jano-logo-animated.svg` | Versão escura animada (~2,6 s, toca uma vez): a soleira e o arco se desenham, a pedra-chave aparece, cada pavimento, de baixo para cima, acende a metade azul e depois a menta, e o nome entra. Com `prefers-reduced-motion` mostra a logo estática. |
+| `jano-logo-animated.svg` | Versão escura animada, usada no README, em ciclo de 8 s: a soleira e o arco se desenham, a pedra-chave aparece, cada pavimento, de baixo para cima, acende a metade azul e depois a menta, e o nome entra; a cena fica parada uns 4 s e some antes de recomeçar. Repete porque num README a primeira passagem costuma acontecer antes de a imagem aparecer na tela. Com `prefers-reduced-motion` mostra a logo estática. |
 
 No aplicativo, o emblema vive em `src/Vistora.Desktop/Themes/Brand.xaml` em três desenhos: completo (48 px ou mais), pequeno (24 a 32 px) e mínimo (16 px). Os desenhos repetem o `jano-mark.svg`; ao mudar um, mude o outro. `scripts/New-JanoIcons.ps1` gera `Assets/Branding/jano-icon.ico` e `jano-icon.png` a partir desse arquivo; rode-o depois de mudar o emblema. Na barra de título, o emblema se anima enquanto há trabalho em andamento (`JanoEmblem.cs`) e fica parado com as animações do Windows desligadas.
 
