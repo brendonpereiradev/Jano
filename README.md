@@ -10,11 +10,15 @@
 
 ## Sobre o projeto
 
-Jano (antes chamado Vistora) é uma aplicação desktop em .NET 10 e WPF para registrar visitas preventivas por unidade e pavimento. Para cada pavimento selecionado, ela abre um chamado no Jira, atribui ao técnico conectado, inicia o atendimento e envia o fechamento, tudo pela interface do Jira em uma janela visível do Edge, sem usar a API.
+O **Jano** (nome de produto do Vistora) é uma aplicação em .NET 10 e WPF que automatiza os chamados de visitas preventivas no Jira, por unidade e pavimento. Para cada pavimento selecionado, ela abre um chamado, atribui ao técnico conectado, inicia o atendimento e envia o fechamento, tudo pela interface do Jira em uma janela visível do Edge, sem usar a API.
 
-Jano é o deus romano das portas, dos começos e dos fins: em cada pavimento, o aplicativo abre um chamado e o fecha. Ele faz parte da mesma família visual do Hefesto, do Hermes e do Talos; a marca está em [assets/brand](assets/brand).
+A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas), `Vistora.Infrastructure` (persistência em JSON e diagnóstico), `Vistora.Automation.Edge` (operações no Jira) e `Vistora.Desktop` (interface). O progresso é salvo em `%LOCALAPPDATA%\Vistora` antes e depois de cada ação, o que permite retomar visitas interrompidas sem duplicar chamados.
 
-A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas), `Vistora.Infrastructure` (persistência em JSON e diagnóstico), `Vistora.Automation.Edge` (operações no Jira) e `Vistora.Desktop` (interface). O progresso é salvo em `%LOCALAPPDATA%\Vistora` antes e depois de cada ação, o que permite retomar visitas interrompidas sem duplicar chamados. Os projetos e a pasta de dados mantêm o nome Vistora, então perfis, configurações e visitas pendentes da versão 1.x continuam valendo na 2.0.
+---
+
+## Rework visual
+
+Na versão 2.0.0 o projeto recebeu um rework visual para se alinhar aos outros projetos do mesmo escopo, o Hefesto, o Hermes e o Talos. O aplicativo passou a se chamar **Jano**, o deus romano das portas, dos começos e dos fins, e ganhou um emblema próprio: um portal em arco em que cada pavimento tem a abertura do chamado em azul e o fechamento em menta. O tema escuro usa as superfícies do Talos, o tema claro as do Hefesto, e o emblema se anima na barra de título enquanto uma visita roda. O repositório também passou a se chamar Jano; os projetos `Vistora.*`, a pasta de dados e os scripts mantêm o nome antigo, e perfis, configurações e visitas pendentes da versão 1.x continuam valendo. Detalhes em [Marca do Jano](assets/brand/README.md).
 
 ---
 
