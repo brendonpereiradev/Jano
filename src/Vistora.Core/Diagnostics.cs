@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Vistora.Core;
@@ -181,7 +180,6 @@ public sealed class DiagnosticAttempt
     private string? stageBefore;
     private bool finished;
     public string Id => initial.AttemptId;
-    public string? CurrentOperationId => operationId;
     public string? FailedStep { get; private set; }
     public string? FailedFloorId { get; private set; }
     public string? ErrorCode { get; private set; }
