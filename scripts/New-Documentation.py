@@ -196,7 +196,7 @@ class Manual(BaseDocTemplate):
         c.setFillColor(INK_2)
         c.setFont('Body', 9.5)
         for i, line in enumerate([f'Versão do aplicativo: {self.version} (antes chamado Vistora)',
-                                  'github.com/brendonpereiradev/Vistora',
+                                  'github.com/brendonpereiradev/Jano',
                                   'Os nomes, unidades e endereços deste documento são fictícios.']):
             c.drawString(MARGIN_X, 34 * mm - i * 6 * mm, line)
         c.restoreState()

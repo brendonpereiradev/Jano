@@ -59,8 +59,8 @@ A solução tem quatro projetos: `Vistora.Core` (regras e execução das visitas
 1. Clone o repositório:
 
    ```powershell
-   git clone https://github.com/brendonpereiradev/Vistora.git
-   cd Vistora
+   git clone https://github.com/brendonpereiradev/Jano.git
+   cd Jano
    ```
 
 2. Prepare o SDK, se necessário, e compile:

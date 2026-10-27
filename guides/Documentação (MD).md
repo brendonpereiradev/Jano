@@ -66,8 +66,8 @@ Quem usava o Vistora pode extrair a 2.0 em outra pasta e abrir o `Jano.exe`: os 
 Clone o repositório, prepare o SDK (se necessário) e compile:
 
 ```powershell
-git clone https://github.com/brendonpereiradev/Vistora.git
-cd Vistora
+git clone https://github.com/brendonpereiradev/Jano.git
+cd Jano
 .\scripts\Bootstrap.ps1
 .\scripts\Build.ps1
 ```
