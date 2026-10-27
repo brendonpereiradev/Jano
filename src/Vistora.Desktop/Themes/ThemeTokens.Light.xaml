@@ -57,6 +57,22 @@
   <SolidColorBrush x:Key="AppDangerTextBrush" Color="#FFB42F2F"/>
   <SolidColorBrush x:Key="AppDangerForegroundBrush" Color="#FFFFFFFF"/>
   <SolidColorBrush x:Key="AppDangerSoftBrush" Color="#FFFCEEEE"/>
+  <!-- Selos de resultado (Histórico): fundo e borda no tom do estado, cor no texto (padrão do Hermes) -->
+  <SolidColorBrush x:Key="AppBadgeSuccessBackgroundBrush" Color="#FFEAF6EF"/>
+  <SolidColorBrush x:Key="AppBadgeSuccessBorderBrush" Color="#FFA6D4B6"/>
+  <SolidColorBrush x:Key="AppBadgeSuccessForegroundBrush" Color="#FF1F7A45"/>
+  <SolidColorBrush x:Key="AppBadgeDangerBackgroundBrush" Color="#FFFCEEEE"/>
+  <SolidColorBrush x:Key="AppBadgeDangerBorderBrush" Color="#FFEBB2B2"/>
+  <SolidColorBrush x:Key="AppBadgeDangerForegroundBrush" Color="#FFB42F2F"/>
+  <SolidColorBrush x:Key="AppBadgeInfoBackgroundBrush" Color="#FFEBF2FD"/>
+  <SolidColorBrush x:Key="AppBadgeInfoBorderBrush" Color="#FFA9C3F2"/>
+  <SolidColorBrush x:Key="AppBadgeInfoForegroundBrush" Color="#FF2155B3"/>
+  <SolidColorBrush x:Key="AppBadgeWarningBackgroundBrush" Color="#FFFCF5E8"/>
+  <SolidColorBrush x:Key="AppBadgeWarningBorderBrush" Color="#FFE3C584"/>
+  <SolidColorBrush x:Key="AppBadgeWarningForegroundBrush" Color="#FF8F5410"/>
+  <SolidColorBrush x:Key="AppBadgeNeutralBackgroundBrush" Color="#FFF1F4F8"/>
+  <SolidColorBrush x:Key="AppBadgeNeutralBorderBrush" Color="#FFC9D2DE"/>
+  <SolidColorBrush x:Key="AppBadgeNeutralForegroundBrush" Color="#FF465569"/>
 
   <!-- Troca de tema na barra de título: o ícone e o texto mostram o tema para onde o botão leva -->
   <sys:String x:Key="AppThemeToggleGlyph">&#xE708;</sys:String>

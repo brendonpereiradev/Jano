@@ -1,25 +1,31 @@
 <local:JanoWindow x:Class="Vistora.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Vistora.Desktop" Title="Vistora — Visitas preventivas" ShowThemeToggle="True" IsBusy="{Binding HasActiveWork}" Width="1180" Height="820" MinWidth="1000" MinHeight="700" WindowStartupLocation="CenterScreen" Closing="WindowClosing">
   <Grid>
-    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="208"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+
+    <!-- Navegação: a marca fica na barra de título; aqui só as páginas, com ícone, e a versão no rodapé. -->
     <Border Background="{DynamicResource AppChromeBrush}" BorderBrush="{DynamicResource AppSurfaceCardBorderBrush}" BorderThickness="0,0,1,0">
       <DockPanel>
-        <StackPanel DockPanel.Dock="Top">
-          <TextBlock Text="Vistora" FontFamily="Bahnschrift" FontSize="32" Margin="22,28,22,0"/>
-          <TextBlock Text="Visitas preventivas" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="22,3,22,28"/>
-          <ItemsControl x:Name="RailItems" IsTabStop="False">
-            <ItemsControl.ItemTemplate><DataTemplate><RadioButton Style="{StaticResource RailNav}" GroupName="Rail" Content="{Binding Name}" Checked="PageChecked" Loaded="RailItemLoaded"/></DataTemplate></ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </StackPanel>
-        <StackPanel DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Margin="22,0,22,28">
-          <TextBlock x:Name="VersionLabel" Foreground="{DynamicResource AppTextMutedBrush}"/>
-        </StackPanel>
+        <TextBlock x:Name="VersionLabel" DockPanel.Dock="Bottom" FontSize="12" Foreground="{DynamicResource AppTextMutedBrush}" Margin="22,0,22,20"/>
+        <ItemsControl x:Name="RailItems" Margin="0,16,0,0" IsTabStop="False">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <RadioButton Style="{StaticResource RailNav}" GroupName="Rail" Checked="PageChecked" Loaded="RailItemLoaded" AutomationProperties.Name="{Binding Name}">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Text="{Binding Glyph}" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                  <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+                </StackPanel>
+              </RadioButton>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
       </DockPanel>
     </Border>
-    <Grid Grid.Column="1" Margin="30,26,30,20">
+
+    <Grid Grid.Column="1" Margin="28,22,28,20">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <StackPanel Margin="0,0,0,18">
+      <StackPanel Margin="0,0,0,16">
         <TextBlock x:Name="PageTitle" Style="{StaticResource PageTitle}"/>
-        <TextBlock x:Name="PageSubtitle" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="0,6,0,0"/>
+        <TextBlock x:Name="PageSubtitle" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="0,4,0,0"/>
       </StackPanel>
       <TabControl x:Name="Pages" Grid.Row="1" BorderBrush="Transparent" Background="Transparent" Padding="0" IsTabStop="False">
         <TabControl.Resources><!-- O conteúdo herda o texto da aba, então a cor do tema vem daqui. --><Style TargetType="TabItem"><Setter Property="Visibility" Value="Collapsed"/><Setter Property="Foreground" Value="{DynamicResource AppTextPrimaryBrush}"/></Style></TabControl.Resources>
@@ -27,118 +33,178 @@
         <!-- Executar visita -->
         <TabItem>
           <Grid>
-            <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <Grid x:Name="RunSetup" IsEnabled="{Binding IsUnlocked}">
-              <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-              <StackPanel>
-                  <TextBlock Text="Perfil da unidade" Style="{StaticResource Label}"/>
-                  <ComboBox x:Name="ProfilePicker" DisplayMemberPath="Name" ItemsSource="{Binding Profiles}" SelectedItem="{Binding ActiveProfile}" Margin="0,6,0,8"/>
-                  <StackPanel x:Name="PendingVisitPanel" Visibility="{Binding HasPendingVisits, Converter={StaticResource Visible}}">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+            <!-- Unidade e visita pendente -->
+            <Border Style="{StaticResource Panel}" Padding="18,14,18,14">
+              <StackPanel x:Name="RunSetup" IsEnabled="{Binding IsUnlocked}">
+                <Grid>
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="3*"/></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="Perfil da unidade" Style="{StaticResource Label}"/>
+                    <ComboBox x:Name="ProfilePicker" DisplayMemberPath="Name" ItemsSource="{Binding Profiles}" SelectedItem="{Binding ActiveProfile}" Margin="0,6,0,0"/>
+                  </StackPanel>
+                  <StackPanel x:Name="PendingVisitPanel" Grid.Column="2" Visibility="{Binding HasPendingVisits, Converter={StaticResource Visible}}">
                     <TextBlock Text="Visita pendente" Style="{StaticResource Label}"/>
-                    <ComboBox x:Name="PendingVisitPicker" ItemsSource="{Binding PendingVisits}" SelectedItem="{Binding SelectedPendingVisit}">
+                    <ComboBox x:Name="PendingVisitPicker" ItemsSource="{Binding PendingVisits}" SelectedItem="{Binding SelectedPendingVisit}" Margin="0,6,0,0">
                       <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}"/></DataTemplate></ComboBox.ItemTemplate>
                     </ComboBox>
                   </StackPanel>
-                  <TextBlock x:Name="PendingVisitNotice" Text="{Binding PendingNotice}" Foreground="{DynamicResource AppAttentionTextBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,8" Visibility="{Binding HasPendingVisits, Converter={StaticResource Visible}}"/>
-              </StackPanel>
-              <Grid Grid.Row="1" Margin="0,8,0,0">
-                  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                  <TextBlock x:Name="SelectionSummary" Text="{Binding SelectionSummary}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                  <DataGrid x:Name="FloorGrid" Grid.Row="1" ItemsSource="{Binding Floors}" SelectedItem="{Binding SelectedFloor}">
-                    <DataGrid.Columns>
-                      <DataGridTemplateColumn x:Name="VisitColumn" Header="Visitar" Width="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Checked="SelectionChanged" Unchecked="SelectionChanged" HorizontalAlignment="Left" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-                      <DataGridTextColumn Header="Pavimento" Binding="{Binding Name}" IsReadOnly="True" Width="*"/>
-                      <DataGridTextColumn Header="Setor" Binding="{Binding Sector}" IsReadOnly="True" Width="*"/>
-                    </DataGrid.Columns>
-                  </DataGrid>
-              </Grid>
-            </Grid>
-            <Border Grid.Row="1" Style="{StaticResource Panel}" Padding="16" Margin="0,16,0,14">
-              <StackPanel>
-                <Grid x:Name="RunStatusRow" Margin="0,0,0,12" Visibility="{Binding HasStatusRow, Converter={StaticResource Visible}}">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                  <TextBlock x:Name="RunStatus" Text="{Binding Status}" local:Tone.Foreground="{Binding StatusTone}" TextWrapping="Wrap" FontWeight="SemiBold" Visibility="{Binding HasStatus, Converter={StaticResource Visible}}" AutomationProperties.LiveSetting="Polite"/>
-                  <TextBlock x:Name="RunCount" Grid.Column="1" Text="{Binding ProgressCount}" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="16,0,0,0" VerticalAlignment="Top"/>
                 </Grid>
-                <ProgressBar x:Name="RunProgress" Maximum="100" Value="{Binding Progress, Mode=OneWay}"/>
-                <ScrollViewer x:Name="RunFloorsScroll" Visibility="{Binding HasRunFloors, Converter={StaticResource Visible}}" MaxHeight="96" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,12,0,0">
-                  <ItemsControl x:Name="RunFloorList" ItemsSource="{Binding RunFloors}" IsTabStop="False">
-                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate>
-                        <Grid Margin="0,3,18,3" ToolTip="{Binding Message}">
-                          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="104"/><ColumnDefinition Width="64"/></Grid.ColumnDefinitions>
-                          <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="13" VerticalAlignment="Center"/>
-                          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0">
-                            <Border Width="18" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="1"/>
-                            <Border Width="18" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="2"/>
-                            <Border Width="18" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="3"/>
-                            <Border Width="18" Height="4" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="4"/>
-                          </StackPanel>
-                          <TextBlock Grid.Column="2" Text="{Binding StageLabel}" FontSize="12" Foreground="{DynamicResource AppTextSecondaryBrush}" VerticalAlignment="Center"/>
-                          <TextBlock Grid.Column="3" Text="{Binding IssueKey, TargetNullValue='—'}" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        </Grid>
-                      </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                </ScrollViewer>
+                <DockPanel Margin="0,12,0,0" Visibility="{Binding HasPendingVisits, Converter={StaticResource Visible}}">
+                  <Ellipse Style="{StaticResource StateDot}" Fill="{DynamicResource AppAttentionBrush}" VerticalAlignment="Top" Margin="0,6,8,0"/>
+                  <TextBlock x:Name="PendingVisitNotice" Text="{Binding PendingNotice}" Foreground="{DynamicResource AppAttentionTextBrush}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                </DockPanel>
               </StackPanel>
             </Border>
-            <StackPanel Grid.Row="2" Orientation="Horizontal">
-              <StackPanel x:Name="RunActions" Orientation="Horizontal" IsEnabled="{Binding IsUnlocked}">
-                <Button x:Name="ExecuteButton" Style="{StaticResource Primary}" Content="{Binding ExecuteLabel}" Command="{Binding ExecuteCommand}"/>
-                <Button x:Name="DiscardButton" Style="{StaticResource Danger}" Content="Descartar visita" Command="{Binding DiscardCommand}" Visibility="{Binding CanDiscard, Converter={StaticResource Visible}}"/>
-                <Button x:Name="ConnectButton" Content="Verificar acesso ao Edge" Command="{Binding CheckAccessCommand}"/>
+
+            <!-- Pavimentos -->
+            <Border Grid.Row="1" Style="{StaticResource Panel}" Margin="0,14,0,0">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                  <TextBlock x:Name="SelectionSummary" Text="{Binding SelectionSummary}" Style="{StaticResource PanelTitle}"/>
+                </Border>
+                <DataGrid x:Name="FloorGrid" Style="{StaticResource PanelGrid}" IsEnabled="{Binding IsUnlocked}" ItemsSource="{Binding Floors}" SelectedItem="{Binding SelectedFloor}">
+                  <DataGrid.Columns>
+                    <DataGridTemplateColumn x:Name="VisitColumn" Header="Visitar" Width="80"><DataGridTemplateColumn.CellTemplate><DataTemplate><CheckBox IsChecked="{Binding Selected, UpdateSourceTrigger=PropertyChanged}" Checked="SelectionChanged" Unchecked="SelectionChanged" HorizontalAlignment="Left" VerticalAlignment="Center"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Pavimento" Binding="{Binding Name}" IsReadOnly="True" Width="*"/>
+                    <DataGridTextColumn Header="Setor" Binding="{Binding Sector}" IsReadOnly="True" Width="*"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
+
+            <!-- Andamento: aparece com uma visita escolhida ou com uma mensagem de status. -->
+            <Border Grid.Row="2" Style="{StaticResource Panel}" Margin="0,14,0,0" Visibility="{Binding HasStatusRow, Converter={StaticResource Visible}}">
+              <StackPanel>
+                <Border Style="{StaticResource PanelHeader}">
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Andamento" Style="{StaticResource PanelTitle}"/>
+                    <TextBlock x:Name="RunCount" Text="{Binding ProgressCount}" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </Border>
+                <StackPanel Margin="18,12,18,14">
+                  <Grid x:Name="RunStatusRow" Margin="0,0,0,10" Visibility="{Binding HasStatusRow, Converter={StaticResource Visible}}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Ellipse Style="{StaticResource StateDot}" local:Tone.Dot="{Binding StatusTone}" VerticalAlignment="Top" Margin="0,6,8,0" Visibility="{Binding HasStatus, Converter={StaticResource Visible}}"/>
+                    <TextBlock x:Name="RunStatus" Grid.Column="1" Text="{Binding Status}" local:Tone.Foreground="{Binding StatusTone}" TextWrapping="Wrap" FontWeight="SemiBold" Visibility="{Binding HasStatus, Converter={StaticResource Visible}}" AutomationProperties.LiveSetting="Polite"/>
+                  </Grid>
+                  <ProgressBar x:Name="RunProgress" Maximum="100" Value="{Binding Progress, Mode=OneWay}"/>
+                  <ScrollViewer x:Name="RunFloorsScroll" Visibility="{Binding HasRunFloors, Converter={StaticResource Visible}}" MaxHeight="84" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,12,0,0">
+                    <ItemsControl x:Name="RunFloorList" ItemsSource="{Binding RunFloors}" IsTabStop="False">
+                      <ItemsControl.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid Margin="0,3,16,3" ToolTip="{Binding Message}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="72"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="116"/><ColumnDefinition Width="60"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontSize="13" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                              <Border Width="14" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="1"/>
+                              <Border Width="14" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="2"/>
+                              <Border Width="14" Height="4" Margin="0,0,2,0" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="3"/>
+                              <Border Width="14" Height="4" CornerRadius="2" local:Tone.Stage="{Binding Stage}" local:Tone.Segment="4"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                              <Ellipse Style="{StaticResource StateDot}" Width="6" Height="6" local:Tone.StageColor="{Binding Stage}" Margin="0,0,6,0"/>
+                              <TextBlock Text="{Binding StageLabel}" FontSize="12" local:Tone.StageColor="{Binding Stage}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="3" Text="{Binding IssueKey, TargetNullValue='—'}" Style="{StaticResource DataText}" FontSize="12"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </ScrollViewer>
+                </StackPanel>
               </StackPanel>
-              <Button x:Name="StopButton" Style="{StaticResource Danger}" Content="{Binding StopLabel}" Visibility="{Binding IsStopVisible, Converter={StaticResource Visible}}" Command="{Binding StopCommand}"/>
-            </StackPanel>
+            </Border>
+
+            <!-- Ações: executar e conferir à esquerda; descartar à direita, longe da ação principal. -->
+            <DockPanel Grid.Row="3" Margin="0,14,0,0" LastChildFill="False">
+              <StackPanel x:Name="RunActions" Orientation="Horizontal" IsEnabled="{Binding IsUnlocked}">
+                <Button x:Name="ExecuteButton" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE768;" Content="{Binding ExecuteLabel}" Command="{Binding ExecuteCommand}"/>
+                <Button x:Name="ConnectButton" local:ButtonIcon.Glyph="&#xE774;" Content="Verificar acesso ao Edge" Command="{Binding CheckAccessCommand}"/>
+              </StackPanel>
+              <Button x:Name="StopButton" Style="{StaticResource Danger}" local:ButtonIcon.Glyph="&#xE71A;" Content="{Binding StopLabel}" Visibility="{Binding IsStopVisible, Converter={StaticResource Visible}}" Command="{Binding StopCommand}"/>
+              <Button x:Name="DiscardButton" DockPanel.Dock="Right" Style="{StaticResource Danger}" Margin="0" local:ButtonIcon.Glyph="&#xE74D;" Content="Descartar visita" Command="{Binding DiscardCommand}" IsEnabled="{Binding IsUnlocked}" Visibility="{Binding CanDiscard, Converter={StaticResource Visible}}"/>
+            </DockPanel>
           </Grid>
         </TabItem>
 
         <!-- Perfis e pavimentos -->
         <TabItem>
-          <DockPanel>
-            <StackPanel x:Name="ProfileActions" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,16" IsEnabled="{Binding IsUnlocked}">
-              <Button x:Name="NewProfileButton" Content="Novo perfil" Style="{StaticResource Primary}" Command="{Binding NewProfileCommand}"/>
-              <Button x:Name="EditProfileButton" Content="Editar" Command="{Binding EditProfileCommand}"/>
-              <Button x:Name="DeleteButton" Content="Excluir" Command="{Binding DeleteProfileCommand}"/>
-            </StackPanel>
-            <DataGrid x:Name="ProfilesGrid" IsReadOnly="True" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfileRow}">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Perfil" Binding="{Binding Name}" Width="*"/>
-                <DataGridTextColumn Header="Unidade" Binding="{Binding Unit}" Width="2*"/>
-                <DataGridTextColumn Header="Solicitante" Binding="{Binding ReporterName}" Width="2*"/>
-                <DataGridTextColumn Header="Pavimentos" Binding="{Binding Floors.Count}" Width="110"/>
-              </DataGrid.Columns>
-            </DataGrid>
-          </DockPanel>
+          <Border Style="{StaticResource Panel}">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}">
+                <DockPanel>
+                  <StackPanel x:Name="ProfileActions" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,7" IsEnabled="{Binding IsUnlocked}">
+                    <Button x:Name="NewProfileButton" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE710;" Content="Novo perfil" Command="{Binding NewProfileCommand}"/>
+                    <Button x:Name="EditProfileButton" local:ButtonIcon.Glyph="&#xE70F;" Content="Editar" Command="{Binding EditProfileCommand}"/>
+                    <Button x:Name="DeleteButton" local:ButtonIcon.Glyph="&#xE74D;" Content="Excluir" Command="{Binding DeleteProfileCommand}" Margin="0"/>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="Perfis" Style="{StaticResource PanelTitle}"/>
+                    <TextBlock Text="{Binding Profiles.Count}" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="cadastrados" Foreground="{DynamicResource AppTextSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </DockPanel>
+              </Border>
+              <DataGrid x:Name="ProfilesGrid" Style="{StaticResource PanelGrid}" IsReadOnly="True" ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfileRow}">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Perfil" Binding="{Binding Name}" Width="*"/>
+                  <DataGridTextColumn Header="Unidade" Binding="{Binding Unit}" Width="2*"/>
+                  <DataGridTextColumn Header="Solicitante" Binding="{Binding ReporterName}" Width="2*"/>
+                  <DataGridTextColumn Header="Pavimentos" Binding="{Binding Floors.Count}" Width="110"/>
+                </DataGrid.Columns>
+              </DataGrid>
+            </DockPanel>
+          </Border>
         </TabItem>
 
         <!-- Histórico -->
         <TabItem>
           <Grid>
             <Grid.RowDefinitions><RowDefinition Height="2*"/><RowDefinition Height="Auto"/><RowDefinition Height="2*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-            <DataGrid x:Name="HistoryGrid" IsReadOnly="True" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedHistoryRun}">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Data" Binding="{Binding DateLabel}" Width="160"/>
-                <DataGridTextColumn Header="Perfil" Binding="{Binding ProfileName}" Width="*"/>
-                <DataGridTemplateColumn Header="Resultado" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding StateLabel}" FontWeight="SemiBold" local:Tone.RunState="{Binding State}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
-                <DataGridTextColumn Header="Progresso" Binding="{Binding ProgressLabel}" Width="150"/>
-              </DataGrid.Columns>
-            </DataGrid>
-            <TextBlock x:Name="HistoryRunMessage" Grid.Row="1" Text="{Binding HistoryMessage}" local:Tone.Foreground="{Binding HistoryMessageTone}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,12,0,0" Visibility="{Binding HasHistoryMessage, Converter={StaticResource Visible}}"/>
-            <DataGrid x:Name="RunFloorGrid" Grid.Row="2" IsReadOnly="True" Margin="0,16,0,0" ItemsSource="{Binding HistoryFloors}" SelectedItem="{Binding SelectedHistoryFloor}">
-              <DataGrid.Columns>
-                <DataGridTextColumn Header="Pavimento" Binding="{Binding Name}" Width="*"/>
-                <DataGridTextColumn Header="Chamado" Binding="{Binding IssueKey}" Width="130"/>
-                <DataGridTextColumn Header="Etapa" Binding="{Binding StageLabel}" Width="150"/>
-                <DataGridTextColumn Header="Mensagem" Binding="{Binding Message}" Width="2*"/>
-              </DataGrid.Columns>
-            </DataGrid>
-            <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <Border Style="{StaticResource Panel}">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}"><TextBlock Text="Visitas" Style="{StaticResource PanelTitle}"/></Border>
+                <DataGrid x:Name="HistoryGrid" Style="{StaticResource PanelGrid}" IsReadOnly="True" ItemsSource="{Binding History}" SelectedItem="{Binding SelectedHistoryRun}">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Data" Binding="{Binding DateLabel}" Width="160"/>
+                    <DataGridTextColumn Header="Perfil" Binding="{Binding ProfileName}" Width="*"/>
+                    <DataGridTemplateColumn Header="Resultado" Width="*"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                      <Border Style="{StaticResource Badge}" local:Tone.Badge="{Binding State}"><TextBlock Text="{Binding StateLabel}" FontSize="12" FontWeight="SemiBold"/></Border>
+                    </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Progresso" Binding="{Binding ProgressLabel}" Width="150"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
+            <DockPanel Grid.Row="1" Margin="2,12,0,0" Visibility="{Binding HasHistoryMessage, Converter={StaticResource Visible}}">
+              <Ellipse Style="{StaticResource StateDot}" local:Tone.Dot="{Binding HistoryMessageTone}" VerticalAlignment="Top" Margin="0,6,8,0"/>
+              <TextBlock x:Name="HistoryRunMessage" Text="{Binding HistoryMessage}" local:Tone.Foreground="{Binding HistoryMessageTone}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+            </DockPanel>
+            <Border Grid.Row="2" Style="{StaticResource Panel}" Margin="0,14,0,0">
+              <DockPanel>
+                <Border DockPanel.Dock="Top" Style="{StaticResource PanelHeader}"><TextBlock Text="Pavimentos da visita" Style="{StaticResource PanelTitle}"/></Border>
+                <DataGrid x:Name="RunFloorGrid" Style="{StaticResource PanelGrid}" IsReadOnly="True" ItemsSource="{Binding HistoryFloors}" SelectedItem="{Binding SelectedHistoryFloor}">
+                  <DataGrid.Columns>
+                    <DataGridTextColumn Header="Pavimento" Binding="{Binding Name}" Width="*"/>
+                    <DataGridTemplateColumn Header="Chamado" Width="130"><DataGridTemplateColumn.CellTemplate><DataTemplate><TextBlock Text="{Binding IssueKey}" Style="{StaticResource DataText}"/></DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="Etapa" Width="160"><DataGridTemplateColumn.CellTemplate><DataTemplate>
+                      <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse Style="{StaticResource StateDot}" Width="6" Height="6" local:Tone.StageColor="{Binding Stage}" Margin="0,0,8,0"/>
+                        <TextBlock Text="{Binding StageLabel}" local:Tone.StageColor="{Binding Stage}" VerticalAlignment="Center"/>
+                      </StackPanel>
+                    </DataTemplate></DataGridTemplateColumn.CellTemplate></DataGridTemplateColumn>
+                    <DataGridTextColumn Header="Mensagem" Binding="{Binding Message}" Width="2*"/>
+                  </DataGrid.Columns>
+                </DataGrid>
+              </DockPanel>
+            </Border>
+            <StackPanel Grid.Row="3" Margin="0,14,0,0">
               <WrapPanel>
-                <Button x:Name="ExportLogButton" Content="Exportar log" Command="{Binding ExportLogCommand}"/>
-                <Button x:Name="ClearHistoryButton" Style="{StaticResource Danger}" Content="Limpar histórico e pendências" Command="{Binding ClearHistoryCommand}"/>
+                <Button x:Name="ExportLogButton" local:ButtonIcon.Glyph="&#xE896;" Content="Exportar log" Command="{Binding ExportLogCommand}"/>
+                <Button x:Name="ClearHistoryButton" Style="{StaticResource Danger}" local:ButtonIcon.Glyph="&#xE74D;" Content="Limpar histórico e pendências" Command="{Binding ClearHistoryCommand}"/>
               </WrapPanel>
               <TextBlock x:Name="HistoryStatus" Text="{Binding HistoryStatus}" local:Tone.Foreground="{Binding HistoryStatusTone}" TextWrapping="Wrap" Margin="0,8,0,0"/>
             </StackPanel>
@@ -147,23 +213,34 @@
 
         <!-- Configurações -->
         <TabItem>
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
-              <StackPanel MaxWidth="660" HorizontalAlignment="Left">
-              <StackPanel x:Name="SettingsPanel" IsEnabled="{Binding IsUnlocked}">
-                <TextBlock Text="Endereço do Jira" Style="{StaticResource Label}"/><TextBox x:Name="JiraUrlBox" Text="{Binding JiraUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                <TextBlock Text="Endereço do formulário de visita preventiva" Style="{StaticResource Label}"/><TextBox x:Name="PortalUrlBox" Text="{Binding PortalUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                <TextBlock Text="Endereço da fila de atendimento" Style="{StaticResource Label}"/><TextBox x:Name="QueueUrlBox" Text="{Binding QueueUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                <WrapPanel Margin="0,8,0,0">
-                  <Button Content="Salvar configurações" Style="{StaticResource Primary}" Command="{Binding SaveSettingsCommand}"/>
-                  <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="320"/>
-                </WrapPanel>
-              </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+            <StackPanel MaxWidth="720" HorizontalAlignment="Left">
+              <Border Style="{StaticResource Panel}">
+                <StackPanel>
+                  <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Jira" Style="{StaticResource PanelTitle}"/></Border>
+                  <StackPanel x:Name="SettingsPanel" IsEnabled="{Binding IsUnlocked}" Margin="18,14,18,16">
+                    <TextBlock Text="Endereço do Jira" Style="{StaticResource Label}"/><TextBox x:Name="JiraUrlBox" FontFamily="Consolas" Text="{Binding JiraUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Endereço do formulário de visita preventiva" Style="{StaticResource Label}"/><TextBox x:Name="PortalUrlBox" FontFamily="Consolas" Text="{Binding PortalUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Endereço da fila de atendimento" Style="{StaticResource Label}"/><TextBox x:Name="QueueUrlBox" FontFamily="Consolas" Text="{Binding QueueUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                    <WrapPanel Margin="0,4,0,0">
+                      <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
+                      <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="360"/>
+                    </WrapPanel>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
               <!-- Fora do SettingsPanel: o tema pode mudar mesmo durante uma visita. -->
-              <TextBlock Text="Aparência" Style="{StaticResource Section}" Margin="0,28,0,10"/>
-              <CheckBox x:Name="DarkThemeBox" Content="Tema escuro" IsChecked="{Binding IsDarkTheme}"/>
-              <TextBlock Text="Vale na hora e fica salvo neste computador." Style="{StaticResource Hint}" Margin="0,6,0,0"/>
-              </StackPanel>
-            </ScrollViewer>
+              <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                <StackPanel>
+                  <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Aparência" Style="{StaticResource PanelTitle}"/></Border>
+                  <StackPanel Margin="18,14,18,16">
+                    <CheckBox x:Name="DarkThemeBox" Content="Tema escuro" IsChecked="{Binding IsDarkTheme}"/>
+                    <TextBlock Text="Vale na hora e fica salvo neste computador. Também muda pelo botão da barra de título." Style="{StaticResource Hint}" Margin="0,8,0,0"/>
+                  </StackPanel>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
         </TabItem>
       </TabControl>
       <TextBlock x:Name="DiagnosticWarning" Grid.Row="2" Text="{Binding DiagnosticWarning}" TextWrapping="Wrap" Foreground="{DynamicResource AppAttentionTextBrush}" Margin="0,14,0,0" Visibility="{Binding HasDiagnosticWarning, Converter={StaticResource Visible}}"/>
