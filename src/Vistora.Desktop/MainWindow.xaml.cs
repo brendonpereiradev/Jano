@@ -27,12 +27,12 @@ public partial class MainWindow : JanoWindow
         ViewModel = viewModel;
         DataContext = viewModel;
         InitializeComponent();
-        VersionLabel.Text = $"Vistora {typeof(App).Assembly.GetName().Version!.ToString(3)}";
+        VersionLabel.Text = $"Jano {typeof(App).Assembly.GetName().Version!.ToString(3)}";
         RailItems.ItemsSource = PageList;
         SelectPage(startPage);
-        // Colunas de DataGrid não herdam o DataContext, então a coluna de escolha acompanha o ViewModel por aqui.
         // O botão de tema da barra de título passa pelo ViewModel, que aplica e salva a escolha, como a caixa das Configurações.
         CommandBindings.Add(new System.Windows.Input.CommandBinding(ToggleThemeCommand, (_, _) => viewModel.IsDarkTheme = !viewModel.IsDarkTheme));
+        // Colunas de DataGrid não herdam o DataContext, então a coluna de escolha acompanha o ViewModel por aqui.
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainViewModel.CanChooseFloors)) ShowVisitColumn();

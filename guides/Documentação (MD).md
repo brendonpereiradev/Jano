@@ -1,6 +1,6 @@
-# Documentação do Vistora
+# Documentação do Jano
 
-Automação de chamados de visitas preventivas no Jira, com execução pelo Microsoft Edge. Esta documentação também está disponível em PDF: [Documentação (PDF)](<Documentação (PDF).pdf>).
+Automação de chamados de visitas preventivas no Jira, com execução pelo Microsoft Edge. O Jano se chamava Vistora até a versão 1.4. Esta documentação também está disponível em PDF: [Documentação (PDF)](<Documentação (PDF).pdf>).
 
 ## Sumário
 
@@ -21,7 +21,7 @@ Automação de chamados de visitas preventivas no Jira, com execução pelo Micr
 
 ## 1. Visão geral
 
-O Vistora é um aplicativo para Windows que registra visitas preventivas no Jira por unidade e pavimento. Para cada pavimento selecionado, ele abre um chamado, atribui ao técnico conectado, inicia o atendimento e envia o fechamento com a resolução e o comentário público. Todo o trabalho acontece pela própria interface do Jira, em uma janela visível do Microsoft Edge, sem usar a API.
+O Jano é um aplicativo para Windows que registra visitas preventivas no Jira por unidade e pavimento. Para cada pavimento selecionado, ele abre um chamado, atribui ao técnico conectado, inicia o atendimento e envia o fechamento com a resolução e o comentário público. Todo o trabalho acontece pela própria interface do Jira, em uma janela visível do Microsoft Edge, sem usar a API.
 
 O progresso é salvo no computador antes e depois de cada ação. Assim, uma visita interrompida pode ser retomada sem duplicar chamados.
 
@@ -35,6 +35,7 @@ O progresso é salvo no computador antes e depois de cada ação. Assim, uma vis
 | Retomada de pendências | Recupera os dados originais da visita e confere os chamados antes de continuar. Visitas sem chamados podem ser descartadas. |
 | Conferência de resultados | Verifica responsável, status, resolução, comentário público e equipe no fechamento. |
 | Histórico e diagnóstico | Reúne os resultados das visitas e exporta um ZIP de registros para análise. |
+| Tema claro e escuro | Troca na hora, pela barra de título ou pelas Configurações, e fica salvo no computador. |
 
 ### Fluxo de uso resumido
 
@@ -56,7 +57,9 @@ O progresso é salvo no computador antes e depois de cada ação. Assim, uma vis
 
 ### Usando o pacote da versão
 
-Extraia o ZIP da distribuição (`Vistora-<versão>-Windows-x64.zip`) para uma pasta e abra `Vistora.exe`. Conserve todos os arquivos do pacote, incluindo as pastas `.playwright`, `assets` e `guides`. O aplicativo usa o Microsoft Edge instalado no computador.
+Extraia o ZIP da distribuição (`Jano-<versão>-Windows-x64.zip`) para uma pasta e abra `Jano.exe`. Conserve todos os arquivos do pacote, incluindo as pastas `.playwright`, `assets` e `guides`. O aplicativo usa o Microsoft Edge instalado no computador.
+
+Quem usava o Vistora pode extrair a 2.0 em outra pasta e abrir o `Jano.exe`: os dados continuam em `%LOCALAPPDATA%\Vistora` (seção 11), então perfis, configurações, a sessão do Edge e as visitas pendentes são aproveitados. Atalhos antigos apontam para o `Vistora.exe` e precisam ser recriados.
 
 ### Compilando a partir do código
 
@@ -82,6 +85,7 @@ Para iniciar o aplicativo compilado:
 | `.\scripts\Build.ps1` | Compila a solução em Release. |
 | `.\scripts\Test.ps1` | Executa os testes; `-SkipBrowser` dispensa os testes que abrem o Edge e `-BrowserOnly` roda só esses. |
 | `.\scripts\Publish.ps1` | Gera a aplicação com runtime incluído e o ZIP da versão em `output/release/`. |
+| `python scripts\New-Documentation.py` | Gera esta documentação em PDF a partir do Markdown (requer o ReportLab). |
 
 ---
 
@@ -101,7 +105,7 @@ Os três endereços devem usar HTTPS e pertencer ao mesmo servidor. Clique em **
 
 ### Nomes do fluxo do Jira
 
-Os nomes de status, transições e tipo de solicitação ficam na seção `Jira` do arquivo `settings.json`. Se o fluxo do Jira mudar, feche o Vistora, ajuste esses valores e abra o aplicativo de novo.
+Os nomes de status, transições e tipo de solicitação ficam na seção `Jira` do arquivo `settings.json`. Se o fluxo do Jira mudar, feche o Jano, ajuste esses valores e abra o aplicativo de novo.
 
 | Campo | Padrão |
 |---|---|
@@ -116,6 +120,10 @@ Os nomes de status, transições e tipo de solicitação ficam na seção `Jira`
 `IssuePath` é o caminho do chamado a partir do endereço do Jira: `{key}` é o número completo, como `SD-123`, e `{project}` é o prefixo, como `SD`. Nenhum valor pode ficar vazio.
 
 Um arquivo de versão anterior usa os padrões e passa a mostrar a seção depois que as configurações forem salvas pelo aplicativo. Uma visita já iniciada guarda uma cópia das configurações, e a mudança vale apenas para as visitas novas.
+
+### Aparência
+
+O aplicativo tem tema claro e escuro. Marque **Tema escuro** no painel **Aparência** das **Configurações** ou use o botão de sol e lua na barra de título. A troca vale na hora, inclusive durante uma visita, e fica salva no computador, sem depender de **Salvar configurações**.
 
 ---
 
@@ -163,9 +171,9 @@ O técnico responsável pelos chamados é a conta conectada no Edge; o solicitan
 4. Faça login no Edge se a sessão precisar de autenticação.
 5. Acompanhe as etapas e os números dos chamados na tela.
 
-O painel acima dos pavimentos mostra a etapa em andamento, o pedido de login e o motivo de uma falha, com a contagem de pavimentos fechados à direita. Se o perfil estiver incompleto, o painel lista em vermelho os campos a corrigir e nenhum chamado é aberto.
+O painel **Andamento**, abaixo dos pavimentos, mostra a etapa em andamento, o pedido de login e o motivo de uma falha, com a contagem de pavimentos fechados no cabeçalho. Cada pavimento aparece com a etapa marcada por cor (verde quando fechado, azul em andamento, cinza pendente) e o número do chamado. Se o perfil estiver incompleto, o painel lista em vermelho os campos a corrigir e nenhum chamado é aberto. Durante a execução, o emblema da barra de título se anima.
 
-O Vistora abre os chamados dos pavimentos selecionados. Depois, confere a atribuição ao técnico, inicia o atendimento e fecha os chamados com seus respectivos textos. Uma visita só é concluída após a conferência do status, da resolução, do comentário público e da equipe de fechamento.
+O Jano abre os chamados dos pavimentos selecionados. Depois, confere a atribuição ao técnico, inicia o atendimento e fecha os chamados com seus respectivos textos. Uma visita só é concluída após a conferência do status, da resolução, do comentário público e da equipe de fechamento.
 
 ---
 
@@ -173,7 +181,7 @@ O Vistora abre os chamados dos pavimentos selecionados. Depois, confere a atribu
 
 ![Histórico de visitas, com os resultados e as etapas de cada chamado](../assets/screenshots/historico.png)
 
-Em **Histórico**, selecione uma visita para consultar o resultado, a última mensagem registrada e as etapas de cada chamado. Desta tela também é possível exportar um diagnóstico (seção 9) e limpar o histórico (seção 10).
+Em **Histórico**, selecione uma visita para consultar o resultado, indicado por um selo colorido, a última mensagem registrada e as etapas de cada chamado. Desta tela também é possível exportar um diagnóstico (seção 9) e limpar o histórico (seção 10).
 
 ---
 
@@ -189,13 +197,13 @@ Os dados de uma visita pendente permanecem iguais aos usados na sua criação; a
 
 ### Descartar uma visita sem chamados
 
-Uma visita que parou antes de abrir qualquer chamado pode ser apagada. Selecione a visita pendente e clique em **Descartar visita**, ao lado de **Retomar visita preventiva**. A confirmação oferece **Cancelar** como opção padrão. O registro, os logs e as capturas dessa visita são apagados, e o perfil volta a permitir uma nova visita.
+Uma visita que parou antes de abrir qualquer chamado pode ser apagada. Selecione a visita pendente e clique em **Descartar visita**, à direita na linha de **Retomar visita preventiva**. A confirmação oferece **Cancelar** como opção padrão. O registro, os logs e as capturas dessa visita são apagados, e o perfil volta a permitir uma nova visita.
 
 O botão só aparece quando nenhum pavimento tem chamado ou abertura em andamento. Visitas com chamados no Jira precisam ser retomadas ou conferidas.
 
 ### Abertura sem número confirmado
 
-Se a abertura foi enviada, mas o Vistora não identificou o número do chamado, consulte a fila do Jira. Ao retomar, informe o número do chamado já criado, como `SD-123456`, quando solicitado. O aplicativo confere os dados do chamado antes de vinculá-lo ao pavimento; cancelar a solicitação ou informar um chamado divergente impede a continuação.
+Se a abertura foi enviada, mas o Jano não identificou o número do chamado, consulte a fila do Jira. Ao retomar, informe o número do chamado já criado, como `SD-123456`, quando solicitado. O aplicativo confere os dados do chamado antes de vinculá-lo ao pavimento; cancelar a solicitação ou informar um chamado divergente impede a continuação.
 
 ### Fechamento sem confirmação
 
@@ -226,7 +234,7 @@ Sem uma visita selecionada, **Exportar log** permite escolher uma abertura do ap
 
 O botão **Limpar histórico e pendências**, no Histórico, remove todas as visitas locais de todas as unidades, inclusive as pendentes e as de perfis excluídos. Também remove os backups das visitas, seus logs e suas capturas. A confirmação informa as quantidades e oferece **Cancelar** como opção padrão.
 
-> **Atenção.** A operação é permanente: uma visita removida deixa de permitir retomada pelo Vistora. Os chamados no Jira, os perfis, as configurações, a sessão do Edge e os ZIPs já exportados são preservados.
+> **Atenção.** A operação é permanente: uma visita removida deixa de permitir retomada pelo Jano. Os chamados no Jira, os perfis, as configurações, a sessão do Edge e os ZIPs já exportados são preservados.
 
 A limpeza fica bloqueada durante carregamento, execução, verificação de acesso e exportação. Se houver uma falha, a tela mostra os registros restantes e permite repetir a operação.
 
@@ -234,14 +242,14 @@ A limpeza fica bloqueada durante carregamento, execução, verificação de aces
 
 ## 11. Dados locais
 
-O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`:
+O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`. A pasta mantém o nome da versão 1.x para que os dados existentes continuem valendo depois da atualização.
 
 | Caminho | Conteúdo |
 |---|---|
 | `profiles.json` | Perfis, pavimentos e resoluções. |
 | `settings.json` | Endereços do Jira e configurações técnicas. |
 | `runs/` | Dados e progresso de cada visita. |
-| `browser/` | Sessão do Microsoft Edge utilizada pelo Vistora. |
+| `browser/` | Sessão do Microsoft Edge utilizada pelo Jano. |
 | `logs/` | Registros de abertura e funcionamento do aplicativo. |
 | `diagnostics/` | Eventos, resumos e capturas das tentativas de execução. |
 
@@ -254,7 +262,7 @@ O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`:
 | O painel lista campos em vermelho e nenhum chamado é aberto. | O perfil está incompleto. Corrija os campos em **Perfis e pavimentos** e execute de novo. |
 | O Edge pede login durante a execução. | Faça login na janela do Edge; a execução continua em seguida. |
 | Os chamados saem em nome do técnico errado. | Encerre a sessão no Jira pela janela do Edge e entre com a conta correta. |
-| O fluxo do Jira mudou de nome (status ou transições). | Feche o Vistora, ajuste a seção `Jira` do `settings.json` e abra o aplicativo de novo. |
+| O fluxo do Jira mudou de nome (status ou transições). | Feche o Jano, ajuste a seção `Jira` do `settings.json` e abra o aplicativo de novo. |
 | A execução parou no meio. | Volte a **Executar visita** e use **Retomar visita preventiva**. |
 | O número do chamado aberto não foi identificado. | Consulte a fila do Jira e informe o número quando a retomada pedir. |
 | É preciso enviar detalhes de uma falha para análise. | Use **Exportar log** no Histórico e envie o ZIP gerado. |

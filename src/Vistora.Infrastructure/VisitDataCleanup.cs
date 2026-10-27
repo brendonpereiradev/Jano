@@ -9,7 +9,7 @@ internal static class VisitDataPaths
         root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         path = Path.GetFullPath(path);
         if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("O caminho de limpeza está fora dos dados locais do Vistora.");
+            throw new IOException("O caminho de limpeza está fora dos dados locais do Jano.");
         for (var current = path; current is not null; current = Path.GetDirectoryName(current))
         {
             if ((File.Exists(current) || Directory.Exists(current)) && File.GetAttributes(current).HasFlag(FileAttributes.ReparsePoint))

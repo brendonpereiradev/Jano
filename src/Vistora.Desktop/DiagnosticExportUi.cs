@@ -39,7 +39,7 @@ internal static class DiagnosticExportUi
         panel.Children.Add(buttons); dialog.Content = panel;
         if (dialog.ShowDialog() != true) return;
         var file = new SaveFileDialog { Title = "Salvar pacote de logs", Filter = "Pacote de diagnóstico (*.zip)|*.zip", DefaultExt = ".zip",
-            AddExtension = true, OverwritePrompt = true, FileName = $"Vistora-diagnostico-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{run?.Id ?? (sessions?.SelectedItem as DiagnosticSession)?.Id ?? diagnostics.SessionId}-{Guid.NewGuid():N}.zip" };
+            AddExtension = true, OverwritePrompt = true, FileName = $"Jano-diagnostico-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{run?.Id ?? (sessions?.SelectedItem as DiagnosticSession)?.Id ?? diagnostics.SessionId}-{Guid.NewGuid():N}.zip" };
         if (file.ShowDialog(owner) != true) return;
         try
         {
