@@ -570,21 +570,33 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         { diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_field" }); return DomControls.Normalize(directValue) == DomControls.Normalize(expected); }
         // Esse campo aparece no modal, mas não está no layout principal do Jira da unidade.
         // O histórico registra separadamente os valores anteriores e os novos valores salvos.
-        foreach (var name in new[] { "History", "Histórico" })
+        // A seção de atividade carrega depois dos campos, e o Jira mostra o histórico como aba ou como botão.
+        var historyName = new Regex(@"^(History|Histórico)$", RegexOptions.IgnoreCase);
+        var tab = Page.GetByRole(AriaRole.Tab, new() { NameRegex = historyName })
+            .Or(Page.GetByRole(AriaRole.Button, new() { NameRegex = historyName })).Filter(new() { Visible = true });
+        try { await tab.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
+        catch (TimeoutException) { }
+        var tabCount = await tab.CountAsync();
+        if (tabCount != 1)
         {
-            var tab = Page.GetByRole(AriaRole.Tab, new() { Name = name, Exact = true }).Filter(new() { Visible = true });
-            if (!await DomControls.IsUniqueVisibleAsync(tab)) continue;
-            await tab.ClickAsync();
-            diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_history" });
-            var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
-                .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
-            try { await updates.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
-            catch (TimeoutException) { return false; }
-            var savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''");
-            // A aba History mostra a atualização mais recente primeiro. Nunca aceitar um valor antigo.
-            return DomControls.Normalize(savedValue) == DomControls.Normalize(expected);
+            diagnostics?.Event("verification.unavailable", "Histórico do chamado não encontrado para conferir a resolução.", DiagnosticLevel.Warning,
+                new() { ["controlKey"] = "issue.history", ["count"] = tabCount });
+            return false;
         }
-        return false;
+        await tab.ClickAsync();
+        diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_history" });
+        var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
+            .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
+        try { await updates.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
+        catch (TimeoutException)
+        {
+            diagnostics?.Event("verification.unavailable", "Nenhuma alteração da resolução aparece no histórico.", DiagnosticLevel.Warning,
+                new() { ["controlKey"] = "issue.history" });
+            return false;
+        }
+        var savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''");
+        // O histórico mostra a atualização mais recente primeiro. Nunca aceitar um valor antigo.
+        return DomControls.Normalize(savedValue) == DomControls.Normalize(expected);
     }
 
     private async Task<bool> PublicCommentMatchesAsync(string key, string expected, CancellationToken cancellationToken)

@@ -42,9 +42,9 @@ if (args.Contains("--diagnose-saved-issue"))
     var resolutionLabels = page.GetByText(new System.Text.RegularExpressions.Regex("Resolução do chamado", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
     Console.WriteLine("Rótulos de resolução: " + await resolutionLabels.EvaluateAllAsync<string>("els=>JSON.stringify(els.map(e=>({text:e.innerText,html:e.outerHTML,parent:e.parentElement.outerHTML.slice(0,2400)})))"));
     Console.WriteLine("Trechos de fechamento: " + await page.Locator("body").EvaluateAsync<string>("e=>JSON.stringify(e.innerText.split('\\n').map((line,i,lines)=>/Resolu|Equipe|Comment|Activity|Details|Show|More|Mostrar|Exibir|Expand|Recolher|View/i.test(line)?lines.slice(Math.max(0,i-1),i+4).join(' | '):'').filter(Boolean))"));
-    foreach (var tabName in new[] { "Comments", "History" })
+    foreach (var tabName in new[] { "Comments", "Comentários", "History", "Histórico" })
     {
-        var tab = page.GetByRole(AriaRole.Tab, new() { Name = tabName, Exact = true });
+        var tab = page.GetByRole(AriaRole.Tab, new() { Name = tabName, Exact = true }).Or(page.GetByRole(AriaRole.Button, new() { Name = tabName, Exact = true }));
         Console.WriteLine($"Aba {tabName}: {await tab.CountAsync()}");
         if (await tab.CountAsync() != 1) continue;
         await tab.ClickAsync(); await Task.Delay(1500);
@@ -617,11 +617,12 @@ static class Fixture
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
       ${row('Equipe',issue.team)}${issueKey.endsWith('1')?'':row('Resolução do chamado',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
-      if(issueKey.endsWith('1')){
-        const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button role="tab" id="comments-tab">Comments</button><button role="tab" id="history-tab">History</button><div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
+      // A atividade chega depois dos campos, com Comentários e Histórico como botões e não como abas.
+      if(issueKey.endsWith('1'))setTimeout(()=>{
+        const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button><button id="history-tab">Histórico</button><div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
         document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do chamado',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do chamado','None',issue.resolution):''}</div>`},400)};
         document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
-      }
+      },900);
       document.getElementById('assign')?.addEventListener('click',async e=>{
         e.preventDefault();
         // A interface antecipa o responsável; recarregar antes da resposta perde a gravação.
