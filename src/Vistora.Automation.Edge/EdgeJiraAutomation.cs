@@ -25,6 +25,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private static readonly TimeSpan SubmitStablePeriod = TimeSpan.FromMilliseconds(300);
     // Chamados com todos os campos já conferidos nesta tentativa, com a visita e o pavimento correspondentes.
     private readonly Dictionary<string, string> verifiedIssues = [];
+    // Cada tipo de problema de conferência é capturado uma vez por tentativa.
+    private readonly HashSet<string> capturedMoments = [];
 
     public async Task ConnectAsync(AppSettings appSettings, Action<string> report, CancellationToken cancellationToken, string? initialIssueKey = null)
     {
@@ -299,8 +301,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         {
             teamMatches = string.Equals(DomControls.Normalize(await Ui.ValueAsync("issue.team", Labels("team"))),
                 DomControls.Normalize(run.Settings.ClosingTeam), StringComparison.OrdinalIgnoreCase);
-            resolutionMatches = await ResolutionMatchesAsync(floor.Floor.Resolution);
-            publicMatches = await PublicCommentMatchesAsync(key, floor.Floor.Resolution, cancellationToken);
+            if (!teamMatches) await CaptureMomentAsync(run, "equipe-divergente", "Captura da equipe divergente disponível.");
+            resolutionMatches = await ResolutionMatchesAsync(run, floor.Floor.Resolution) ?? ResolutionSentByPendingClose(floor);
+            publicMatches = await PublicCommentMatchesAsync(run, key, floor.Floor.Resolution, cancellationToken);
         }
         cancellationToken.ThrowIfCancellationRequested();
         return new(key, status, self, closed, started, resolutionMatches, publicMatches, teamMatches);
@@ -563,7 +566,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         finally { closingDialog = null; }
     }
 
-    private async Task<bool> ResolutionMatchesAsync(string expected)
+    // Retorna null quando a página não oferece onde conferir a resolução.
+    private async Task<bool?> ResolutionMatchesAsync(VisitRun run, string expected)
     {
         var directValue = await Ui.TryValueAsync("issue.resolution", Labels("resolution"));
         if (directValue is not null)
@@ -573,15 +577,22 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         // A seção de atividade carrega depois dos campos, e o Jira mostra o histórico como aba ou como botão.
         var historyName = new Regex(@"^(History|Histórico)$", RegexOptions.IgnoreCase);
         var tab = Page.GetByRole(AriaRole.Tab, new() { NameRegex = historyName })
-            .Or(Page.GetByRole(AriaRole.Button, new() { NameRegex = historyName })).Filter(new() { Visible = true });
-        try { await tab.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
-        catch (TimeoutException) { }
+            .Or(Page.GetByRole(AriaRole.Button, new() { NameRegex = historyName }))
+            .Or(Page.GetByRole(AriaRole.Radio, new() { NameRegex = historyName })).Filter(new() { Visible = true });
+        var begin = Stopwatch.GetTimestamp();
+        while (await tab.CountAsync() == 0 && Stopwatch.GetElapsedTime(begin) < TimeSpan.FromSeconds(settings.TimeoutSeconds))
+        {
+            // O Jira só monta a atividade quando ela aparece na tela: rola até o fim de cada área com rolagem.
+            await Page.EvaluateAsync("() => { for (const e of [document.scrollingElement, ...document.querySelectorAll('*')]) if (e && e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = e.scrollHeight; window.scrollTo(0, document.body.scrollHeight); }");
+            await Task.Delay(500);
+        }
         var tabCount = await tab.CountAsync();
         if (tabCount != 1)
         {
             diagnostics?.Event("verification.unavailable", "Histórico do chamado não encontrado para conferir a resolução.", DiagnosticLevel.Warning,
-                new() { ["controlKey"] = "issue.history", ["count"] = tabCount });
-            return false;
+                new() { ["controlKey"] = "issue.history", ["count"] = tabCount }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+            await CaptureMomentAsync(run, "historico-ausente", "Captura do chamado sem Histórico disponível.");
+            return null;
         }
         await tab.ClickAsync();
         diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_history" });
@@ -592,14 +603,34 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         {
             diagnostics?.Event("verification.unavailable", "Nenhuma alteração da resolução aparece no histórico.", DiagnosticLevel.Warning,
                 new() { ["controlKey"] = "issue.history" });
+            await CaptureMomentAsync(run, "historico-sem-resolucao", "Captura do Histórico sem a resolução disponível.");
             return false;
         }
         var savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''");
         // O histórico mostra a atualização mais recente primeiro. Nunca aceitar um valor antigo.
-        return DomControls.Normalize(savedValue) == DomControls.Normalize(expected);
+        var matches = DomControls.Normalize(savedValue) == DomControls.Normalize(expected);
+        if (!matches) await CaptureMomentAsync(run, "resolucao-divergente", "Captura da resolução divergente disponível.");
+        return matches;
     }
 
-    private async Task<bool> PublicCommentMatchesAsync(string key, string expected, CancellationToken cancellationToken)
+    // Sem o Histórico na página, vale o fechamento pendente desta visita: a pendência só é salva depois que o formulário
+    // fica pronto com esta resolução conferida, e o Jira grava os campos da transição junto com o novo status.
+    // O status fechado, o comentário público e a equipe continuam conferidos na página.
+    private bool ResolutionSentByPendingClose(FloorRun floor)
+    {
+        if (floor.PendingAction != PendingAction.Close) return false;
+        diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "transition_form" });
+        return true;
+    }
+
+    private async Task<bool> PublicCommentMatchesAsync(VisitRun run, string key, string expected, CancellationToken cancellationToken)
+    {
+        var matches = await FindPublicCommentAsync(run, key, expected, cancellationToken);
+        if (!matches) await CaptureMomentAsync(run, "comentario-ausente", "Captura do comentário público não encontrado disponível.");
+        return matches;
+    }
+
+    private async Task<bool> FindPublicCommentAsync(VisitRun run, string key, string expected, CancellationToken cancellationToken)
     {
         foreach (var name in new[] { "Comments", "Comentários" })
         {
@@ -616,7 +647,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         }
         var portalLink = Page.GetByRole(AriaRole.Link, new() { NameRegex = new(@"^(View request in portal|Ver solicitação no portal)$", RegexOptions.IgnoreCase) }).Filter(new() { Visible = true });
         if (await DomControls.IsUniqueVisibleAsync(portalLink))
-            return await PortalCommentMatchesAsync(key, expected, (await portalLink.GetAttributeAsync("href"))!, cancellationToken);
+            return await PortalCommentMatchesAsync(run, key, expected, (await portalLink.GetAttributeAsync("href"))!, cancellationToken);
         var markers = Page.GetByText(new Regex(@"^(Comentário público|Public comment|Replied to customer|Reply to customer|Compartilhado com o cliente)$", RegexOptions.IgnoreCase));
         for (var i = 0; i < await markers.CountAsync(); i++)
         {
@@ -637,7 +668,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         return false;
     }
 
-    private async Task<bool> PortalCommentMatchesAsync(string key, string expected, string href, CancellationToken cancellationToken)
+    private async Task<bool> PortalCommentMatchesAsync(VisitRun run, string key, string expected, string href, CancellationToken cancellationToken)
     {
         var originalUrl = Page.Url;
         var target = new Uri(new Uri(originalUrl), href);
@@ -659,12 +690,41 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
                     if (DomControls.Normalize(body) == DomControls.Normalize(expected)) return true;
                 await Task.Delay(300, cancellationToken);
             } while (DateTimeOffset.UtcNow < deadline);
+            // Captura o portal antes de voltar ao chamado.
+            await CaptureMomentAsync(run, "comentario-ausente", "Captura do comentário público não encontrado disponível.");
             return false;
         }
         finally { if (!Page.IsClosed) await NavigateAsync(originalUrl); }
     }
 
     public async Task CaptureFailureAsync(VisitRun run)
+    {
+        // A falha pode chegar com a página recarregando; sem esperar, a captura mostraria só o esqueleto do Jira.
+        if (page is not null && !page.IsClosed)
+        {
+            try
+            {
+                var begin = Stopwatch.GetTimestamp();
+                if (PageKind(page.Url) != "issue") await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new() { Timeout = 5000 });
+                else while (!await DomControls.IsUniqueVisibleAsync(await StatusButtonLocatorAsync()) && Stopwatch.GetElapsedTime(begin) < TimeSpan.FromSeconds(10))
+                    await Task.Delay(300);
+            }
+            catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
+        }
+        await CaptureAsync(run, "falha", "Captura de falha disponível.");
+    }
+
+    // Captura a página no momento em que a conferência encontra o problema, antes de navegar para outra página.
+    // A captura nunca altera o resultado da conferência.
+    private async Task CaptureMomentAsync(VisitRun run, string label, string message)
+    {
+        if (!capturedMoments.Add(label)) return;
+        try { await CaptureAsync(run, label, message); }
+        catch (Exception ex) when (ex is PlaywrightException or TimeoutException or IOException or UnauthorizedAccessException)
+        { diagnostics?.Event("artifact.skipped", "Não foi possível capturar a página neste momento.", DiagnosticLevel.Warning); }
+    }
+
+    private async Task CaptureAsync(VisitRun run, string label, string message)
     {
         if (page is null || page.IsClosed)
         { diagnostics?.Event("artifact.skipped", "Captura indisponível: navegador fechado ou não conectado.", DiagnosticLevel.Warning); return; }
@@ -674,14 +734,14 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var attemptId = diagnostics?.Id ?? Guid.NewGuid().ToString("N");
         var directory = store.Diagnostics?.ArtifactDirectory(run.Id, attemptId) ?? Path.Combine(store.DiagnosticsDirectory(run.Id), "attempts", attemptId, "artifacts");
         Directory.CreateDirectory(directory);
-        var filename = $"{Guid.NewGuid():N}-falha.png";
+        var filename = $"{Guid.NewGuid():N}-{label}.png";
         var profile = run.Profile;
         string[] privateValues = [profile.ReporterName, profile.ReporterEmail, profile.FullName, profile.Extension, profile.Phone,
             profile.Unit, profile.Description, run.TechnicianName, .. run.Floors.Select(f => f.Floor.Resolution)];
         var masks = new List<ILocator> { page.Locator("input,textarea,[contenteditable=true]") };
         masks.AddRange(privateValues.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Select(v => page.GetByText(v, new() { Exact = false })));
         await page.ScreenshotAsync(new() { Path = Path.Combine(directory, filename), FullPage = true, Mask = masks, Timeout = 10000 });
-        diagnostics?.Event("artifact.saved", "Captura de falha disponível.", artifacts: ["artifacts/" + filename]);
+        diagnostics?.Event("artifact.saved", message, artifacts: ["artifacts/" + filename]);
     }
 
     public async ValueTask DisposeAsync()

@@ -59,16 +59,11 @@ public sealed class AppSettings
     public int TimeoutSeconds { get; set; } = 60;
     public int LoginTimeoutMinutes { get; set; } = 15;
     public Dictionary<string, string> SelectorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
-    public const string DefaultClosingTeam = "CTS Field Services";
-    private string closingTeam = DefaultClosingTeam;
-    // Até a 2.0.1 o padrão era "Field Services", que não existe no Jira. Configurações e visitas
-    // salvas com esse valor passam a usar o nome da equipe como o Jira exibe.
-    public string ClosingTeam
-    {
-        get => closingTeam;
-        set => closingTeam = value is not null && string.Equals(Regex.Replace(value, @"\s+", " ").Trim(), "Field Services", StringComparison.OrdinalIgnoreCase)
-            ? DefaultClosingTeam : value!;
-    }
+    // A equipe e os nomes do fluxo dependem do Jira de cada equipe e começam em branco.
+    public string ClosingTeam { get; set; } = "";
+    // Ausente nos arquivos até a 2.1.1, quando os padrões eram os da equipe CTS. Ver Upgrade.
+    public int? DefaultsVersion { get; set; }
+    public const int CurrentDefaultsVersion = 2;
     public DiagnosticOptions Diagnostics { get; set; } = new();
     // Arquivos anteriores à 2.0.0 não têm o tema e abrem no claro.
     public AppTheme Theme { get; set; } = AppTheme.Light;
@@ -81,6 +76,31 @@ public sealed class AppSettings
     {
         get => fieldLabels;
         set => fieldLabels = new(value ?? [], StringComparer.OrdinalIgnoreCase);
+    }
+
+    // Um arquivo gravado até a 2.1.1 só deixava de ter um valor quando ele era o padrão da época,
+    // o da equipe CTS. Esses valores voltam ao carregar, e quem já usava o Jano não percebe mudança.
+    public static AppSettings Upgrade(AppSettings settings)
+    {
+        if (settings.DefaultsVersion is not null) return settings;
+        // Até a 2.0.1 o padrão era "Field Services", que não existe no Jira.
+        if (string.Equals(Regex.Replace(settings.ClosingTeam, @"\s+", " ").Trim(), "Field Services", StringComparison.OrdinalIgnoreCase))
+            settings.ClosingTeam = "";
+        settings.WithLegacyTeamValues().DefaultsVersion = CurrentDefaultsVersion;
+        return settings;
+    }
+
+    // Preenche só o que está em branco com os valores da equipe CTS, padrões até a 2.1.1.
+    public AppSettings WithLegacyTeamValues()
+    {
+        static string Fill(string value, string legacy) => string.IsNullOrWhiteSpace(value) ? legacy : value;
+        ClosingTeam = Fill(ClosingTeam, "CTS Field Services");
+        Jira.WaitingStatus = Fill(Jira.WaitingStatus, "Aguardando N2");
+        Jira.InProgressStatus = Fill(Jira.InProgressStatus, "Em andamento N2");
+        Jira.RequestType = Fill(Jira.RequestType, "Visita Preventiva");
+        Jira.StartTransition = Fill(Jira.StartTransition, "Iniciar Atendimento");
+        Jira.CloseTransition = Fill(Jira.CloseTransition, "Transitar para Fechado");
+        return this;
     }
 }
 
@@ -121,13 +141,13 @@ public static class JiraFields
 // Nomes do fluxo do Jira da unidade, editáveis em Configurações.
 public sealed class JiraWorkflow
 {
-    public string WaitingStatus { get; set; } = "Aguardando N2";
-    public string InProgressStatus { get; set; } = "Em andamento N2";
+    public string WaitingStatus { get; set; } = "";
+    public string InProgressStatus { get; set; } = "";
     private List<string> closedStatuses = ["Fechado", "Closed", "Concluído", "Concluido"];
     public List<string> ClosedStatuses { get => closedStatuses; set => closedStatuses = value ?? []; }
-    public string RequestType { get; set; } = "Visita Preventiva";
-    public string StartTransition { get; set; } = "Iniciar Atendimento";
-    public string CloseTransition { get; set; } = "Transitar para Fechado";
+    public string RequestType { get; set; } = "";
+    public string StartTransition { get; set; } = "";
+    public string CloseTransition { get; set; } = "";
     // Caminho relativo ao endereço do Jira; {project} é o prefixo do chamado e {key}, o número completo.
     public string IssuePath { get; set; } = "/jira/servicedesk/projects/{project}/queues/issue/{key}";
 }
@@ -220,12 +240,12 @@ public static class ProfileValidation
                 errors.Add("O formulário e a fila devem pertencer ao mesmo endereço HTTPS do Jira.");
         if (settings.TimeoutSeconds is < 10 or > 180) errors.Add("O tempo de espera deve estar entre 10 e 180 segundos.");
         if (settings.LoginTimeoutMinutes is < 1 or > 120) errors.Add("O tempo para login deve estar entre 1 e 120 minutos.");
-        if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Preencha Equipe de fechamento.");
+        if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Preencha Equipe de fechamento em Configurações.");
         var workflow = settings.Jira;
         foreach (var (label, value) in new[] { ("Tipo de solicitação", workflow.RequestType), ("Status aguardando atendimento", workflow.WaitingStatus),
                      ("Status em atendimento", workflow.InProgressStatus), ("Transição para iniciar o atendimento", workflow.StartTransition),
                      ("Transição para fechar", workflow.CloseTransition), ("Caminho do chamado", workflow.IssuePath) })
-            if (string.IsNullOrWhiteSpace(value)) errors.Add($"Preencha {label}.");
+            if (string.IsNullOrWhiteSpace(value)) errors.Add($"Preencha {label} em Configurações.");
         if (workflow.ClosedStatuses.Count == 0 || workflow.ClosedStatuses.Any(string.IsNullOrWhiteSpace))
             errors.Add("Informe pelo menos um status de chamado fechado, sem linhas vazias.");
         if (!string.IsNullOrWhiteSpace(workflow.IssuePath) && (!workflow.IssuePath.StartsWith('/') || !workflow.IssuePath.Contains("{key}", StringComparison.Ordinal)))

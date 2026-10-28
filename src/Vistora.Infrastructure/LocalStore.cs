@@ -21,9 +21,11 @@ public sealed class LocalStore : IRunStore
     private static string SafeId(string id) => Guid.TryParseExact(id, "N", out _) ? id : throw new ArgumentException("Identificador inválido.");
 
     public Task<ProfileDocument> LoadProfilesAsync() => ReadAsync("profiles.json", () => new ProfileDocument());
-    public Task<AppSettings> LoadSettingsAsync() => ReadAsync("settings.json", () => new AppSettings());
+    public async Task<AppSettings> LoadSettingsAsync() => AppSettings.Upgrade(
+        await ReadAsync("settings.json", () => new AppSettings { DefaultsVersion = AppSettings.CurrentDefaultsVersion }));
     public Task SaveProfilesAsync(ProfileDocument value) { Diagnostics?.Register(value); return WriteAsync("profiles.json", value); }
-    public Task SaveSettingsAsync(AppSettings value) => WriteAsync("settings.json", value);
+    // O que se grava já segue os padrões atuais: um valor em branco não volta a ser o da CTS.
+    public Task SaveSettingsAsync(AppSettings value) { value.DefaultsVersion = AppSettings.CurrentDefaultsVersion; return WriteAsync("settings.json", value); }
     public Task SaveRunAsync(VisitRun run) { Diagnostics?.Register(run); return WriteAsync(Path.Combine("runs", SafeId(run.Id) + ".json"), run); }
 
     public async Task ClearHistoryAsync()

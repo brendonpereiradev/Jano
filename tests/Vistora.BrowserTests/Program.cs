@@ -138,7 +138,10 @@ var startDelayMs = 1500;
 var startMode = "unrelated";
 var rejectStart = false;
 var disabledSubmit = false;
-var workflow = new JiraWorkflow();
+var hideHistory = false;
+// Nomes do fluxo de exemplo, que os padrões deixam em branco.
+JiraWorkflow ExampleWorkflow() => new AppSettings().WithLegacyTeamValues().Jira;
+var workflow = ExampleWorkflow();
 app.MapPost("/fixture/start", async (HttpContext ctx) =>
 {
     startRequests++;
@@ -165,7 +168,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
         return Results.Content("<html><body><label>Abrir esta requisição em nome de*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
-    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, workflow), "text/html; charset=utf-8");
+    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, hideHistory, workflow), "text/html; charset=utf-8");
 });
 await app.StartAsync();
 var root = Path.Combine(Path.GetTempPath(), "VistoraBrowserTests", Guid.NewGuid().ToString("N"));
@@ -178,7 +181,7 @@ var profile = new VisitProfile
     Extension = "123456", Unit = "Unidade A", Floors = [new() { Name = "Subsolo", Sector = "DML", Room = "Sala A", Resolution = "Visita Subsolo\n\nComputador: OK\nImpressora: OK" },
     new() { Name = "Térreo", Sector = "Consultórios", Room = "Sala B", Resolution = "Visita Térreo\n\nAvayas: OK" }]
 };
-var run = ProfileValidation.CreateRun(profile, new AppSettings());
+var run = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
 run.Settings.JiraUrl = $"http://127.0.0.1:{port}";
 run.Settings.PortalUrl = run.Settings.JiraUrl + "/servicedesk/customer/portal/1/group/1/create/1";
 run.Settings.QueueUrl = run.Settings.JiraUrl + "/queue";
@@ -285,7 +288,7 @@ try
 
     var rejectedProfile = Serialization.Copy(profile); rejectedProfile.Floors = [rejectedProfile.Floors[0]];
     rejectAssignment = true;
-    var assignmentProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var assignmentProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     assignmentProbe.Settings = Serialization.Copy(run.Settings);
     assignmentProbe.TechnicianName = run.TechnicianName;
     await engine.ExecuteAsync(assignmentProbe, default);
@@ -313,7 +316,7 @@ try
     Console.WriteLine("PASS: rejeição e demora da atribuição preservam a pendência; retomada conclui o mesmo chamado.");
 
     rejectClosing = true;
-    var rejectedRun = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var rejectedRun = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     rejectedRun.Settings = Serialization.Copy(run.Settings); rejectedRun.Settings.TimeoutSeconds = 2;
     await engine.ExecuteAsync(rejectedRun, default);
     var rejectedKey = rejectedRun.Floors[0].IssueKey;
@@ -334,7 +337,7 @@ try
     Check(rejectedRun.State == RunState.Completed && rejectedRun.Floors[0].IssueKey == rejectedKey && retryConfirmations == 1 && closeRequests == requestsBeforeRetry + 1, rejectedRun.Message);
     Console.WriteLine("PASS: envio rejeitado preserva a pendência e a conferência explícita retoma o mesmo chamado.");
 
-    var teamProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var teamProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     teamProbe.Settings = Serialization.Copy(run.Settings); teamProbe.Settings.ClosingTeam = "Equipe Inexistente";
     var closesBeforeTeam = closeRequests;
     await engine.ExecuteAsync(teamProbe, default);
@@ -349,8 +352,34 @@ try
     }
     Console.WriteLine("PASS: equipe ausente das opções do Jira interrompe o fechamento na hora, sem envio.");
 
+    hideHistory = true;
+    var historyProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    historyProbe.Settings = Serialization.Copy(run.Settings); historyProbe.Settings.TimeoutSeconds = 5;
+    await engine.ExecuteAsync(historyProbe, default);
+    Check(historyProbe.State == RunState.Completed && historyProbe.Floors[0].Stage == FloorStage.Closed, "Fechamento sem Histórico na página não foi concluído: " + historyProbe.Message);
+    var historyEvents = (await Task.WhenAll(Directory.EnumerateFiles(store.DiagnosticsDirectory(historyProbe.Id), "events.jsonl", SearchOption.AllDirectories).Select(path => File.ReadAllLinesAsync(path))))
+        .SelectMany(lines => lines).Where(line => line.Length > 0).Select(line => JsonSerializer.Deserialize<DiagnosticEvent>(line, Serialization.Options)!).ToArray();
+    Check(historyEvents.Any(e => e.EventName == "verification.source" && e.Details?.GetValueOrDefault("source")?.ToString() == "transition_form"),
+        "A resolução não foi conferida pelo formulário enviado.");
+    var historyCaptures = historyEvents.Where(e => e.EventName == "artifact.saved").SelectMany(e => e.ArtifactPaths ?? []).ToArray();
+    Check(historyCaptures.Length == 1 && historyCaptures[0].EndsWith("-historico-ausente.png", StringComparison.Ordinal),
+        "A página sem Histórico não foi capturada no momento da conferência.");
+    var historyExport = Path.Combine(Path.GetTempPath(), $"Vistora-history-export-{Guid.NewGuid():N}.zip");
+    await diagnostics.ExportAsync(historyExport, historyProbe, includeScreenshots: true);
+    using (var zip = System.IO.Compression.ZipFile.OpenRead(historyExport))
+        Check(zip.Entries.Any(e => e.FullName.EndsWith("-historico-ausente.png", StringComparison.Ordinal)), "A captura da conferência ficou fora do pacote de diagnóstico.");
+    // Outra tentativa não enviou o formulário: sem Histórico, a resolução continua pedindo conferência.
+    await using (var historyBrowser = new EdgeJiraAutomation(store))
+    {
+        await historyBrowser.ConnectAsync(historyProbe.Settings, _ => { }, default, historyProbe.Floors[0].IssueKey);
+        var reread = await historyBrowser.ReadIssueAsync(historyProbe, historyProbe.Floors[0], default);
+        Check(reread.Closed && !reread.ResolutionMatches && reread.PublicCommentMatches && reread.TeamMatches, "Uma releitura sem Histórico aceitou a resolução sem o formulário enviado.");
+    }
+    hideHistory = false;
+    Console.WriteLine("PASS: sem Histórico na página, vale a resolução do formulário enviado e conferido na mesma tentativa; a captura do momento entra no pacote.");
+
     missingTransition = true; transitionDelayMs = 0;
-    var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     transitionProbe.Settings = Serialization.Copy(run.Settings); transitionProbe.Settings.TimeoutSeconds = 1;
     await engine.ExecuteAsync(transitionProbe, default);
     var transitionKey = transitionProbe.Floors[0].IssueKey;
@@ -395,7 +424,7 @@ try
     Console.WriteLine("PASS: seletor configurado aguarda o início; cancelar a espera do fechamento permite retomar o mesmo chamado.");
 
     rejectStart = true; transitionDelayMs = 0; startDelayMs = 1500;
-    var startProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var startProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     startProbe.Settings = Serialization.Copy(run.Settings); startProbe.Settings.TimeoutSeconds = 3;
     var startsBeforeReject = startRequests;
     await engine.ExecuteAsync(startProbe, default);
@@ -420,7 +449,7 @@ try
     Console.WriteLine("PASS: inicio rejeitado preserva pendencia; retomada aguarda confirmacao atrasada e habilitada sem duplicar chamado ou envio.");
 
     disabledSubmit = true;
-    var submitProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings());
+    var submitProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
     submitProbe.Settings = Serialization.Copy(run.Settings); submitProbe.Settings.TimeoutSeconds = 1;
     var portalVisitsBeforeSubmitProbe = portalVisits;
     await engine.ExecuteAsync(submitProbe, default);
@@ -439,7 +468,7 @@ try
         StartTransition = "Começar visita", CloseTransition = "Resolver visita", IssuePath = "/browse/{key}"
     };
     wrongLatestResolution = false; transitionDelayMs = 0; startMode = "direct";
-    var workflowProbe = ProfileValidation.CreateRun(profile, new AppSettings());
+    var workflowProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
     workflowProbe.Settings = Serialization.Copy(run.Settings); workflowProbe.Settings.Jira = Serialization.Copy(workflow);
     await engine.ExecuteAsync(workflowProbe, default);
     Check(workflowProbe.State == RunState.Completed && workflowProbe.Floors.All(f => f.Stage == FloorStage.Closed), "Fluxo com outros nomes não concluiu: " + workflowProbe.Message);
@@ -453,17 +482,17 @@ try
                 "Fechamento com outros nomes de status não foi conferido pelo endereço configurado.");
         }
     }
-    var defaultNames = Serialization.Copy(workflowProbe.Settings); defaultNames.Jira = new(); defaultNames.TimeoutSeconds = 2;
+    var defaultNames = Serialization.Copy(workflowProbe.Settings); defaultNames.Jira = ExampleWorkflow(); defaultNames.TimeoutSeconds = 2;
     await using (var defaultBrowser = new EdgeJiraAutomation(store))
     {
         try { await defaultBrowser.ConnectAsync(defaultNames, _ => { }, default, workflowProbe.Floors[0].IssueKey); throw new Exception("Status de outro fluxo reconhecido com os nomes padrão."); }
         catch (InvalidOperationException ex) when (ex.Data["DiagnosticCode"]?.ToString() == "FORM_LOAD_TIMEOUT") { }
     }
-    workflow = new JiraWorkflow();
+    workflow = ExampleWorkflow();
     Console.WriteLine("PASS: status, transições, tipo de solicitação e endereço do chamado vêm da seção Jira das configurações.");
 
     loginMode = true;
-    var loginProbe = ProfileValidation.CreateRun(profile, new AppSettings()); loginProbe.Settings = Serialization.Copy(run.Settings);
+    var loginProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); loginProbe.Settings = Serialization.Copy(run.Settings);
     var loginDiagnostics = new DiagnosticAttempt(diagnostics, loginProbe, "access");
     using (var loginCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
     await using (var loginBrowser = new EdgeJiraAutomation(store))
@@ -487,7 +516,7 @@ try
     Console.WriteLine("PASS: a página de login continua aguardando autenticação.");
 
     loginMode = false; incompleteForm = true;
-    var formProbe = ProfileValidation.CreateRun(profile, new AppSettings()); formProbe.Settings = Serialization.Copy(run.Settings);
+    var formProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); formProbe.Settings = Serialization.Copy(run.Settings);
     var formDiagnostics = new DiagnosticAttempt(diagnostics, formProbe, "access");
     await using (var formBrowser = new EdgeJiraAutomation(store))
     {
@@ -521,7 +550,7 @@ try
     Console.WriteLine("PASS: capturas preservadas e ZIP inclui versões do Edge por tentativa.");
     Console.WriteLine("PASS: formulário incompleto respeita o tempo da etapa e informa o problema correto.");
     incompleteForm = false;
-    var ambiguousProbe = ProfileValidation.CreateRun(profile, new AppSettings()); ambiguousProbe.Settings = Serialization.Copy(run.Settings);
+    var ambiguousProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); ambiguousProbe.Settings = Serialization.Copy(run.Settings);
     ambiguousProbe.Settings.SelectorOverrides["portal.ready"] = "body";
     ambiguousProbe.Settings.SelectorOverrides["portal.title"] = "input";
     await engine.ExecuteAsync(ambiguousProbe, default);
@@ -530,7 +559,7 @@ try
             "Controle ambíguo não identificado antes do envio.");
     Console.WriteLine("PASS: controle ambíguo registra chave, contagem e causa sem enviar o formulário.");
     passwordForm = true;
-    var passwordProbe = ProfileValidation.CreateRun(profile, new AppSettings()); passwordProbe.Settings = Serialization.Copy(run.Settings);
+    var passwordProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); passwordProbe.Settings = Serialization.Copy(run.Settings);
     passwordProbe.Settings.SelectorOverrides["portal.ready"] = "body";
     var passwordDiagnostics = new DiagnosticAttempt(diagnostics, passwordProbe, "access");
     await using (var passwordBrowser = new EdgeJiraAutomation(store))
@@ -552,7 +581,7 @@ static void Check(bool condition, string message) { if (!condition) throw new Ex
 static class Fixture
 {
     public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode,
-        bool disabledSubmit, JiraWorkflow workflow) => """
+        bool disabledSubmit, bool hideHistory, JiraWorkflow workflow) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
     <style>body{font:16px Segoe UI;padding:28px;background:#f6f8fb;color:#123743}main{max-width:850px;margin:auto;background:white;padding:24px}label{display:block;margin:14px 0 4px}input,textarea,select{font:inherit;padding:8px;width:90%}button{padding:10px;margin:8px}dl>div{display:flex;gap:24px;padding:8px;border-bottom:1px solid #ddd}dl>div>span:first-child{width:250px}dialog{width:650px}pre{white-space:pre-wrap}.options{background:#eef4f4}.options>div{padding:10px;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.combo-control{position:relative}.selected-overlay{position:absolute;inset:0;background:#eef4f4;z-index:2;padding:8px;width:90%}</style></head><body><main id="main"></main>
     <script>
@@ -563,6 +592,8 @@ static class Fixture
     const ambiguousTransition = __AMBIGUOUS_TRANSITION__;
     const startMode = '__START_MODE__';
     const disabledSubmit = __DISABLED_SUBMIT__;
+    // Jira sem Histórico na atividade e sem a resolução no layout principal.
+    const hideHistory = __HIDE_HISTORY__;
     // Nomes do fluxo como o Jira exibe; um fluxo diferente do padrão também tira o data-testid do status.
     const workflow = __WORKFLOW__;
     const main=document.getElementById('main'); const issues=JSON.parse(localStorage.getItem('issues')||'{}');
@@ -615,12 +646,12 @@ static class Fixture
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')||workflow.plainStatus?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
       ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
-      ${row('Equipe',issue.team)}${issueKey.endsWith('1')?'':row('Resolução do chamado',issue.resolution)}</dl>
+      ${row('Equipe',issue.team)}${issueKey.endsWith('1')||hideHistory?'':row('Resolução do chamado',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
       // A atividade chega depois dos campos, com Comentários e Histórico como botões e não como abas.
-      if(issueKey.endsWith('1'))setTimeout(()=>{
-        const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button><button id="history-tab">Histórico</button><div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
-        document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do chamado',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do chamado','None',issue.resolution):''}</div>`},400)};
+      if(issueKey.endsWith('1')||hideHistory)setTimeout(()=>{
+        const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button>${hideHistory?'':'<button id="history-tab">Histórico</button>'}<div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
+        if(!hideHistory)document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do chamado',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do chamado','None',issue.resolution):''}</div>`},400)};
         document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
       },900);
       document.getElementById('assign')?.addEventListener('click',async e=>{
@@ -682,10 +713,10 @@ static class Fixture
     """.Replace("__HIDE_PUBLIC__", hidePublic ? "true" : "false").Replace("__WRONG_LATEST_RESOLUTION__", wrongLatestResolution ? "true" : "false")
         .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("__START_MODE__", startMode)
         .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false")
-        .Replace("__DISABLED_SUBMIT__", disabledSubmit ? "true" : "false").Replace("__WORKFLOW__", JsonSerializer.Serialize(new
+        .Replace("__DISABLED_SUBMIT__", disabledSubmit ? "true" : "false").Replace("__HIDE_HISTORY__", hideHistory ? "true" : "false").Replace("__WORKFLOW__", JsonSerializer.Serialize(new
         {
             waiting = workflow.WaitingStatus.Trim(), inProgress = workflow.InProgressStatus.Trim(), closed = workflow.ClosedStatuses[0].Trim(),
             requestType = workflow.RequestType, start = workflow.StartTransition, close = workflow.CloseTransition,
-            plainStatus = JsonSerializer.Serialize(workflow) != JsonSerializer.Serialize(new JiraWorkflow())
+            plainStatus = JsonSerializer.Serialize(workflow) != JsonSerializer.Serialize(new AppSettings().WithLegacyTeamValues().Jira)
         }));
 }

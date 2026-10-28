@@ -20,7 +20,7 @@ internal static class HistoryCleanupTests
     {
         Name = "Unidade de teste", Unit = "Unidade A", ReporterName = "Pessoa Exemplo", ReporterEmail = "pessoa@example.com",
         FullName = "Pessoa Exemplo", Extension = "123", Floors = [new Floor { Name = "Pavimento 1", Resolution = "Equipamentos conferidos." }]
-    }, new AppSettings());
+    }, new AppSettings().WithLegacyTeamValues());
 
     private static async Task Complete()
     {

@@ -66,7 +66,7 @@ internal static class Program
     };
     private static VisitRun Run(VisitProfile profile, string key = "SD-1001")
     {
-        var run = ProfileValidation.CreateRun(profile, new AppSettings());
+        var run = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
         run.Floors[0].IssueKey = key; run.Floors[0].Stage = FloorStage.Created; run.Message = "Chamado aberto";
         return run;
     }
@@ -252,7 +252,7 @@ internal static class Program
     private static void OriginalData()
     {
         var profile = Profile(); var run = Run(profile);
-        var empty = ProfileValidation.CreateRun(profile, new AppSettings()); empty.CreatedAt = run.CreatedAt.AddHours(1);
+        var empty = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); empty.CreatedAt = run.CreatedAt.AddHours(1);
         var before = JsonSerializer.Serialize(run, Serialization.Options);
         profile.Unit = "Unidade alterada"; profile.Floors[0].Resolution = "Texto alterado";
         using var fixture = new Fixture([profile], [empty, run]); var model = fixture.Model;
@@ -397,7 +397,7 @@ internal static class Program
     private static void DiscardVisit()
     {
         var profile = Profile(); var other = Profile("Unidade B");
-        var empty = ProfileValidation.CreateRun(profile, new AppSettings()); empty.State = RunState.Failed; empty.Message = "O formulário não carregou.";
+        var empty = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); empty.State = RunState.Failed; empty.Message = "O formulário não carregou.";
         var withIssue = Run(other);
         using var fixture = new Fixture([profile, other], [empty, withIssue], preview: false); var model = fixture.Model;
         Await(model.Store.SaveRunAsync(empty)); Await(model.Store.SaveRunAsync(withIssue));
@@ -743,7 +743,8 @@ internal static class Program
         {
             diagnostics = new DiagnosticService(Path.Combine(Path.GetTempPath(), "VistoraDesktopTests", Guid.NewGuid().ToString("N")));
             Model = new MainViewModel(diagnostics, Dialogs, preview, automationFactory: automation);
-            Model.Show(new ProfileDocument { Profiles = profiles, ActiveProfileId = profiles.FirstOrDefault()?.Id }, runs);
+            // Equipe e fluxo preenchidos como numa instalação já configurada; os padrões vêm em branco.
+            Model.Show(new ProfileDocument { Profiles = profiles, ActiveProfileId = profiles.FirstOrDefault()?.Id }, runs, new AppSettings().WithLegacyTeamValues());
         }
         public void Dispose() => Await(diagnostics.DisposeAsync().AsTask());
     }

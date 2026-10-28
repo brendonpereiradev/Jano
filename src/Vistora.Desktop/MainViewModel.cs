@@ -318,9 +318,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
 
     /// <summary>Mostra perfis e visitas já carregados, sem ler o disco. Usado pelos testes e pelas capturas.</summary>
-    internal void Show(ProfileDocument document, List<VisitRun> visits)
+    internal void Show(ProfileDocument document, List<VisitRun> visits, AppSettings? configured = null)
     {
-        profiles = document; runs = visits;
+        profiles = document; runs = visits; settings = configured ?? settings;
         RefreshProfiles(); RefreshHistory();
         ShowSettings();
         State = ScreenState.Idle;

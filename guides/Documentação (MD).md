@@ -108,9 +108,9 @@ Os três endereços devem usar HTTPS e pertencer ao mesmo servidor. No caminho d
 
 ### Equipe e fluxo de atendimento
 
-Os nomes devem ser escritos como aparecem no Jira. Nenhum pode ficar vazio.
+Numa instalação nova, estes campos vêm em branco, porque dependem do Jira de cada equipe. Enquanto algum estiver vazio, o Jano não abre chamados e indica no painel de status o que falta preencher. Escreva os nomes como aparecem no Jira.
 
-| Campo | Padrão |
+| Campo | Exemplo |
 |---|---|
 | Equipe de fechamento | `CTS Field Services` |
 | Tipo de solicitação | `Visita Preventiva` |
@@ -118,12 +118,14 @@ Os nomes devem ser escritos como aparecem no Jira. Nenhum pode ficar vazio.
 | Transição para iniciar o atendimento | `Iniciar Atendimento` |
 | Status em atendimento | `Em andamento N2` |
 | Transição para fechar | `Transitar para Fechado` |
-| Status de chamado fechado | `Fechado`, `Closed`, `Concluído`, `Concluido` (um por linha) |
-| Caminho do chamado | `/jira/servicedesk/projects/{project}/queues/issue/{key}` |
+| Status de chamado fechado | `Fechado`, `Closed`, `Concluído`, `Concluido` (um por linha; vem preenchido) |
+| Caminho do chamado | `/jira/servicedesk/projects/{project}/queues/issue/{key}` (vem preenchido, no formato do Jira Service Management) |
+
+Quem atualiza de uma versão até a 2.1.1 mantém os valores que já usava. Um campo que não estava gravado nas configurações recebe o valor de exemplo da tabela acima, que era o padrão dessas versões.
 
 ### Campos do formulário
 
-O Jano encontra os campos do formulário e do chamado pelo rótulo exibido no Jira. Se o formulário da sua equipe usa outro nome, informe-o aqui. Um campo em branco volta ao rótulo padrão.
+O Jano encontra os campos do formulário e do chamado pelo rótulo exibido no Jira. Os rótulos padrão são os de um formulário de exemplo. Confira cada um com o formulário da sua equipe e informe o nome que ele usa. Um campo em branco volta ao rótulo padrão.
 
 | Campo | Rótulo padrão |
 |---|---|
@@ -292,7 +294,7 @@ O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`. A pasta mantém o no
 
 | Situação | O que fazer |
 |---|---|
-| O painel lista campos em vermelho e nenhum chamado é aberto. | O perfil está incompleto. Corrija os campos em **Perfis e pavimentos** e execute de novo. |
+| O painel lista campos em vermelho e nenhum chamado é aberto. | Algo está incompleto. Os itens que terminam em "em Configurações" são corrigidos em **Configurações**; os demais, em **Perfis e pavimentos**. Depois, execute de novo. |
 | O Edge pede login durante a execução. | Faça login na janela do Edge; a execução continua em seguida. |
 | Os chamados saem em nome do técnico errado. | Encerre a sessão no Jira pela janela do Edge e entre com a conta correta. |
 | O fluxo do Jira mudou de nome (status ou transições). | Ajuste os nomes em **Configurações** e retome a visita. |

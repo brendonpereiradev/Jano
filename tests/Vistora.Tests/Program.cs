@@ -33,7 +33,8 @@ var tests = new (string Name, Func<Task> Test)[]
     ("Fluxo do Jira exige nomes preenchidos e caminho com o número do chamado", ValidateJiraWorkflow),
     ("Configurações antigas recebem o fluxo do Jira padrão", LegacyJiraWorkflow),
     ("Rótulos configurados substituem os campos padrão do Jira", ConfiguredFieldLabels),
-    ("Visita retomada usa as configurações atuais sem trocar a equipe já enviada", ResumeUsesCurrentSettings)
+    ("Visita retomada usa as configurações atuais sem trocar a equipe já enviada", ResumeUsesCurrentSettings),
+    ("Instalação nova começa sem os valores de uma equipe", GenericDefaults)
 }.Concat(DiagnosticTests.Cases).Concat(HistoryCleanupTests.Cases).ToArray();
 var failed = 0;
 foreach (var (name, test) in tests)
@@ -51,7 +52,7 @@ static VisitProfile Profile(int count = 2) => new()
     Extension = "123", Unit = "Unidade A", Floors = Enumerable.Range(0, count).Select(i => new Floor
     { Name = $"Pavimento {i}", Sector = $"Setor {i}", Room = $"Sala {i}", Resolution = $"Visita {i}\nEquipamento {i}: OK" }).ToList()
 };
-static VisitRun Run(int count = 2) => ProfileValidation.CreateRun(Profile(count), new AppSettings());
+static VisitRun Run(int count = 2) => ProfileValidation.CreateRun(Profile(count), new AppSettings().WithLegacyTeamValues());
 static async Task CompleteRun()
 {
     var run = Run(6); var memory = new MemoryStore(); var fake = new FakeJira();
@@ -65,7 +66,7 @@ static async Task CompleteRun()
 }
 static Task SnapshotIsolation()
 {
-    var profile = Profile(); var run = ProfileValidation.CreateRun(profile, new AppSettings());
+    var profile = Profile(); var run = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
     profile.Floors.Reverse(); profile.Floors[0].Resolution = "Mudou"; profile.Unit = "Outra unidade";
     Check(run.Profile.Unit == "Unidade A" && run.Floors[0].Floor.Resolution.StartsWith("Visita 0"), "Dados alteraram a execução.");
     return Task.CompletedTask;
@@ -189,12 +190,11 @@ static Task ValidateProfile()
     var settings = new AppSettings { PortalUrl = "https://outro.example.com" };
     Check(ProfileValidation.Validate(Profile(), settings).Any(e => e.Contains("HTTPS")), "Outro domínio aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("Equipe de fechamento")), "Equipe de fechamento vazia aceita.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings()).Count == 0, "Configuração padrão recusada.");
-    Check(new AppSettings().ClosingTeam == "CTS Field Services", "A equipe padrão não é a exibida pelo Jira.");
-    // Visitas pendentes guardam uma cópia das configurações com o padrão antigo.
-    var legacyRun = JsonSerializer.Deserialize<VisitRun>("""{"Settings":{"ClosingTeam":" field   Services "}}""", Serialization.Options)!;
-    Check(legacyRun.Settings.ClosingTeam == "CTS Field Services", "O padrão antigo da equipe não foi migrado na visita salva.");
-    Check(Serialization.Copy(new AppSettings { ClosingTeam = "Outra Equipe" }).ClosingTeam == "Outra Equipe", "Uma equipe configurada foi substituída.");
+    // Sem configurar a equipe e o fluxo, nenhuma visita é aberta.
+    var blank = ProfileValidation.ValidateSettings(new AppSettings());
+    Check(new AppSettings().ClosingTeam == "" && blank.Count == 6 && blank.All(e => e.EndsWith("em Configurações.")), "Os padrões não estão em branco ou não indicam Configurações.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings().WithLegacyTeamValues()).Count == 0, "Configuração preenchida recusada.");
+    Check(Serialization.Copy(new AppSettings { ClosingTeam = "Field Services" }).ClosingTeam == "Field Services", "Uma equipe configurada foi substituída."); 
     return Task.CompletedTask;
 }
 static Task ValidateJiraWorkflow()
@@ -205,7 +205,9 @@ static Task ValidateJiraWorkflow()
     Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = ["Fechado", " "] } }).Any(e => e.Contains("chamado fechado")), "Status de fechado vazio aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/SD-1" } }).Any(e => e.Contains("{key}")), "Caminho sem o número do chamado aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "browse/{key}" } }).Any(e => e.Contains("começar com /")), "Caminho relativo sem barra aceito.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/{key}", InProgressStatus = "Em atendimento" } }).Count == 0, "Fluxo personalizado válido recusado.");
+    var custom = new AppSettings { ClosingTeam = "Equipe", Jira = new() { IssuePath = "/browse/{key}", WaitingStatus = "Aberto", InProgressStatus = "Em atendimento",
+        RequestType = "Manutenção", StartTransition = "Iniciar", CloseTransition = "Fechar" } };
+    Check(ProfileValidation.ValidateSettings(custom).Count == 0, "Fluxo personalizado válido recusado.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { LoginTimeoutMinutes = 0 }).Any(e => e.Contains("login")), "Tempo para login fora do intervalo aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { FieldLabels = new() { ["andar"] = "Piso" } }).Any(e => e.Contains("andar")), "Rótulo de campo desconhecido aceito.");
     return Task.CompletedTask;
@@ -241,7 +243,8 @@ static async Task LegacyJiraWorkflow()
         legacy = JsonSerializer.Serialize(document.RootElement.EnumerateObject().Where(p => p.Name != "Jira").ToDictionary(p => p.Name, p => p.Value));
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), legacy);
     var loaded = await new LocalStore(store.Root).LoadSettingsAsync();
-    Check(loaded.SchemaVersion == 1 && JsonSerializer.Serialize(loaded.Jira) == JsonSerializer.Serialize(new JiraWorkflow()), "Arquivo sem a seção Jira não recebeu os padrões.");
+    Check(loaded.SchemaVersion == 1 && JsonSerializer.Serialize(loaded.Jira) == JsonSerializer.Serialize(new AppSettings().WithLegacyTeamValues().Jira),
+        "Arquivo sem a seção Jira não recebeu os valores de antes da 2.2.0.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": null }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
     Check(loaded.Jira.WaitingStatus == "Aguardando N2" && ProfileValidation.ValidateSettings(loaded).Count == 0, "Seção Jira nula não recebeu os padrões.");
@@ -252,6 +255,29 @@ static async Task LegacyJiraWorkflow()
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
     Check(loaded.Jira.ClosedStatuses.SequenceEqual(["Resolvido"]) && loaded.Jira.IssuePath == "/browse/{key}" && loaded.Jira.StartTransition == "Iniciar Atendimento",
         "Valores parciais da seção Jira foram misturados com a lista padrão ou perderam os demais padrões.");
+    Check(loaded.ClosingTeam == "CTS Field Services" && loaded.DefaultsVersion == AppSettings.CurrentDefaultsVersion, "Arquivo antigo sem a equipe não recebeu a da CTS.");
+    // Até a 2.0.1 o padrão "Field Services" não existia no Jira; arquivos dessa época passam a usar o nome correto.
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "ClosingTeam": " field   Services " }""");
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == "CTS Field Services", "O padrão antigo da equipe não foi migrado.");
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "ClosingTeam": "Outra Equipe", "Jira": { "WaitingStatus": "Aberto" } }""");
+    loaded = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(loaded.ClosingTeam == "Outra Equipe" && loaded.Jira.WaitingStatus == "Aberto" && loaded.Jira.InProgressStatus == "Em andamento N2",
+        "Valores gravados num arquivo antigo foram substituídos.");
+}
+static async Task GenericDefaults()
+{
+    // Instalação nova: sem settings.json, a equipe e o fluxo começam em branco.
+    var store = new LocalStore(TestDirectory());
+    var fresh = await store.LoadSettingsAsync();
+    Check(fresh.ClosingTeam == "" && fresh.Jira.WaitingStatus == "" && fresh.Jira.RequestType == "" && fresh.JiraUrl == "https://jira.example.com",
+        "A instalação nova recebeu valores de uma equipe.");
+    // Gravado por esta versão, um valor em branco continua em branco ao abrir de novo.
+    await store.SaveSettingsAsync(fresh);
+    var reopened = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(reopened.DefaultsVersion == AppSettings.CurrentDefaultsVersion && reopened.ClosingTeam == "" && reopened.Jira.CloseTransition == "",
+        "Configurações gravadas nesta versão receberam os valores antigos.");
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "DefaultsVersion": 2, "ClosingTeam": "Field Services" }""");
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == "Field Services", "Uma equipe chamada Field Services foi trocada pela da CTS.");
 }
 static string TestDirectory() => Path.Combine(Path.GetTempPath(), "VistoraTests", Guid.NewGuid().ToString("N"));
 static async Task LocalPersistence()

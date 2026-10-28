@@ -38,7 +38,7 @@ internal static class DiagnosticTests
         Title = "Visita privada", Description = "Descrição confidencial sentinel",
         Floors = Enumerable.Range(1, count).Select(i => new Floor { Name = $"Andar privado {i}", Sector = "Setor privado", Room = "Sala privada",
             Resolution = $"Resolução confidencial {i}\nComentário reservado sentinel" }).ToList()
-    }, new AppSettings());
+    }, new AppSettings().WithLegacyTeamValues());
     private static async Task<DiagnosticEvent[]> Events(string root, VisitRun run) =>
         (await Task.WhenAll(Directory.EnumerateFiles(Path.Combine(root, "diagnostics", run.Id), "*.jsonl", SearchOption.AllDirectories)
             .Select(path => File.ReadAllLinesAsync(path)))).SelectMany(lines => lines).Where(s => s.Length > 0)
