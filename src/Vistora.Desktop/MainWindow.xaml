@@ -270,10 +270,6 @@
                     </StackPanel>
                   </StackPanel>
                 </Border>
-                <WrapPanel Margin="0,14,0,0">
-                  <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
-                  <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
-                </WrapPanel>
               </StackPanel>
               <!-- Fora do SettingsPanel: o tema pode mudar mesmo durante uma visita. -->
               <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
@@ -285,6 +281,11 @@
                   </StackPanel>
                 </StackPanel>
               </Border>
+              <!-- No fim da página; o comando só fica disponível quando o SettingsPanel está liberado. -->
+              <WrapPanel Margin="0,14,0,0">
+                <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
+                <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
+              </WrapPanel>
             </StackPanel>
           </ScrollViewer>
         </TabItem>
