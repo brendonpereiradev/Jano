@@ -31,7 +31,9 @@ var tests = new (string Name, Func<Task> Test)[]
     ("Conferência recusada ou cancelada preserva o fechamento pendente", DeclineCloseRetry),
     ("Status ou responsável divergente impede autorizar novo fechamento", UnsafeCloseRetry),
     ("Fluxo do Jira exige nomes preenchidos e caminho com o número do chamado", ValidateJiraWorkflow),
-    ("Configurações antigas recebem o fluxo do Jira padrão", LegacyJiraWorkflow)
+    ("Configurações antigas recebem o fluxo do Jira padrão", LegacyJiraWorkflow),
+    ("Rótulos configurados substituem os campos padrão do Jira", ConfiguredFieldLabels),
+    ("Visita retomada usa as configurações atuais sem trocar a equipe já enviada", ResumeUsesCurrentSettings)
 }.Concat(DiagnosticTests.Cases).Concat(HistoryCleanupTests.Cases).ToArray();
 var failed = 0;
 foreach (var (name, test) in tests)
@@ -186,7 +188,7 @@ static Task ValidateProfile()
     profile.ReporterEmail = "inválido"; Check(ProfileValidation.Validate(profile, new()).Any(e => e.Contains("e-mail válido")), "E-mail inválido aceito.");
     var settings = new AppSettings { PortalUrl = "https://outro.example.com" };
     Check(ProfileValidation.Validate(Profile(), settings).Any(e => e.Contains("HTTPS")), "Outro domínio aceito.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("ClosingTeam")), "Equipe de fechamento vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { ClosingTeam = "  " }).Any(e => e.Contains("Equipe de fechamento")), "Equipe de fechamento vazia aceita.");
     Check(ProfileValidation.ValidateSettings(new AppSettings()).Count == 0, "Configuração padrão recusada.");
     Check(new AppSettings().ClosingTeam == "CTS Field Services", "A equipe padrão não é a exibida pelo Jira.");
     // Visitas pendentes guardam uma cópia das configurações com o padrão antigo.
@@ -197,13 +199,38 @@ static Task ValidateProfile()
 }
 static Task ValidateJiraWorkflow()
 {
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { WaitingStatus = " " } }).Any(e => e.Contains("WaitingStatus")), "Status vazio aceito.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { CloseTransition = "" } }).Any(e => e.Contains("CloseTransition")), "Transição vazia aceita.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = [] } }).Any(e => e.Contains("ClosedStatuses")), "Lista de status de fechado vazia aceita.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = ["Fechado", " "] } }).Any(e => e.Contains("ClosedStatuses")), "Status de fechado vazio aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { WaitingStatus = " " } }).Any(e => e.Contains("Status aguardando atendimento")), "Status vazio aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { CloseTransition = "" } }).Any(e => e.Contains("Transição para fechar")), "Transição vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = [] } }).Any(e => e.Contains("chamado fechado")), "Lista de status de fechado vazia aceita.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { ClosedStatuses = ["Fechado", " "] } }).Any(e => e.Contains("chamado fechado")), "Status de fechado vazio aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/SD-1" } }).Any(e => e.Contains("{key}")), "Caminho sem o número do chamado aceito.");
-    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "browse/{key}" } }).Any(e => e.Contains("IssuePath")), "Caminho relativo sem barra aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "browse/{key}" } }).Any(e => e.Contains("começar com /")), "Caminho relativo sem barra aceito.");
     Check(ProfileValidation.ValidateSettings(new AppSettings { Jira = new() { IssuePath = "/browse/{key}", InProgressStatus = "Em atendimento" } }).Count == 0, "Fluxo personalizado válido recusado.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { LoginTimeoutMinutes = 0 }).Any(e => e.Contains("login")), "Tempo para login fora do intervalo aceito.");
+    Check(ProfileValidation.ValidateSettings(new AppSettings { FieldLabels = new() { ["andar"] = "Piso" } }).Any(e => e.Contains("andar")), "Rótulo de campo desconhecido aceito.");
+    return Task.CompletedTask;
+}
+static Task ConfiguredFieldLabels()
+{
+    Check(JiraFields.Labels(new AppSettings(), "floor").SequenceEqual(["Andar"]), "O rótulo padrão do pavimento mudou.");
+    var settings = Serialization.Copy(new AppSettings { FieldLabels = new() { ["Floor"] = "  Piso  do   prédio ", ["unit"] = "unidade - usuário", ["room"] = " " } });
+    Check(JiraFields.Labels(settings, "floor").SequenceEqual(["Piso do prédio"]), "O rótulo configurado não substituiu o padrão.");
+    Check(JiraFields.Labels(settings, "unit").Length == 2, "O rótulo igual ao padrão perdeu as variações aceitas.");
+    Check(JiraFields.Labels(settings, "room").SequenceEqual(["Sala"]), "Um rótulo em branco não voltou ao padrão.");
+    Check(JiraFields.All.Select(f => f.Key).Distinct().Count() == JiraFields.All.Length, "Chaves de campo repetidas.");
+    return Task.CompletedTask;
+}
+static Task ResumeUsesCurrentSettings()
+{
+    var current = new AppSettings { ClosingTeam = "Minha Equipe", TimeoutSeconds = 90, Jira = new() { CloseTransition = "Fechar" } };
+    var run = Run(); run.Settings.ClosingTeam = "Equipe Antiga";
+    VisitRunSelection.ApplySettings(run, current);
+    Check(run.Settings.ClosingTeam == "Minha Equipe" && run.Settings.TimeoutSeconds == 90 && run.Settings.Jira.CloseTransition == "Fechar" &&
+        !ReferenceEquals(run.Settings, current), "A visita retomada não recebeu as configurações atuais.");
+    var closing = Run(); closing.Settings.ClosingTeam = "Equipe Antiga"; closing.Floors[0].Stage = FloorStage.Closed;
+    VisitRunSelection.ApplySettings(closing, current);
+    Check(closing.Settings.ClosingTeam == "Equipe Antiga" && closing.Settings.TimeoutSeconds == 90,
+        "A equipe de um chamado já fechado foi trocada na retomada.");
     return Task.CompletedTask;
 }
 static async Task LegacyJiraWorkflow()

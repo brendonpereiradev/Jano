@@ -46,6 +46,20 @@ public sealed class RelayCommand(Action execute, Func<bool> canExecute) : IComma
     public void RaiseCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
 
+/// <summary>Rótulo de um campo do Jira na tela de Configurações.</summary>
+public sealed class FieldLabelItem(JiraField field, Action changed) : INotifyPropertyChanged
+{
+    public JiraField Field { get; } = field;
+    public string Description => Field.Description;
+    private string label = "";
+    public string Label
+    {
+        get => label;
+        set { if (label == value) return; label = value; PropertyChanged?.Invoke(this, new(nameof(Label))); changed(); }
+    }
+    public event PropertyChangedEventHandler? PropertyChanged;
+}
+
 public sealed class MainViewModel : INotifyPropertyChanged
 {
     private readonly LocalStore store;
@@ -90,6 +104,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ExportLogCommand = new(() => _ = ExportLogAsync(), () => State != ScreenState.Cleaning && !IsExporting);
         ClearHistoryCommand = new(() => _ = ClearHistoryAsync(), () => State == ScreenState.Idle && !IsExporting && !IsPreview);
         SaveSettingsCommand = new(() => _ = SaveSettingsAsync(), () => IsUnlocked);
+        FieldLabels = JiraFields.All.Select(f => new FieldLabelItem(f, () => SettingsStatus = "")).ToList();
         commands = [ExecuteCommand, DiscardCommand, CheckAccessCommand, StopCommand, NewProfileCommand, EditProfileCommand,
             DeleteProfileCommand, ExportLogCommand, ClearHistoryCommand, SaveSettingsCommand];
     }
@@ -221,6 +236,28 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string PortalUrl { get => portalUrl; set { if (Set(ref portalUrl, value)) SettingsStatus = ""; } }
     private string queueUrl = "";
     public string QueueUrl { get => queueUrl; set { if (Set(ref queueUrl, value)) SettingsStatus = ""; } }
+    private string closingTeam = "";
+    public string ClosingTeam { get => closingTeam; set { if (Set(ref closingTeam, value)) SettingsStatus = ""; } }
+    private string requestType = "";
+    public string RequestType { get => requestType; set { if (Set(ref requestType, value)) SettingsStatus = ""; } }
+    private string waitingStatus = "";
+    public string WaitingStatus { get => waitingStatus; set { if (Set(ref waitingStatus, value)) SettingsStatus = ""; } }
+    private string inProgressStatus = "";
+    public string InProgressStatus { get => inProgressStatus; set { if (Set(ref inProgressStatus, value)) SettingsStatus = ""; } }
+    // Um status por linha.
+    private string closedStatuses = "";
+    public string ClosedStatuses { get => closedStatuses; set { if (Set(ref closedStatuses, value)) SettingsStatus = ""; } }
+    private string startTransition = "";
+    public string StartTransition { get => startTransition; set { if (Set(ref startTransition, value)) SettingsStatus = ""; } }
+    private string closeTransition = "";
+    public string CloseTransition { get => closeTransition; set { if (Set(ref closeTransition, value)) SettingsStatus = ""; } }
+    private string issuePath = "";
+    public string IssuePath { get => issuePath; set { if (Set(ref issuePath, value)) SettingsStatus = ""; } }
+    private string timeoutSeconds = "";
+    public string TimeoutSeconds { get => timeoutSeconds; set { if (Set(ref timeoutSeconds, value)) SettingsStatus = ""; } }
+    private string loginTimeoutMinutes = "";
+    public string LoginTimeoutMinutes { get => loginTimeoutMinutes; set { if (Set(ref loginTimeoutMinutes, value)) SettingsStatus = ""; } }
+    public List<FieldLabelItem> FieldLabels { get; }
     private string settingsStatus = "";
     public string SettingsStatus { get => settingsStatus; private set => Set(ref settingsStatus, value); }
     private StatusTone settingsStatusTone;
@@ -267,7 +304,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 }
             }
             RefreshProfiles(); RefreshHistory();
-            JiraUrl = settings.JiraUrl; PortalUrl = settings.PortalUrl; QueueUrl = settings.QueueUrl;
+            ShowSettings();
             State = ScreenState.Idle;
             await diagnostics.CleanAsync();
         }
@@ -285,7 +322,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
     {
         profiles = document; runs = visits;
         RefreshProfiles(); RefreshHistory();
-        JiraUrl = settings.JiraUrl; PortalUrl = settings.PortalUrl; QueueUrl = settings.QueueUrl;
+        ShowSettings();
         State = ScreenState.Idle;
     }
 
@@ -473,6 +510,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             RefreshHistory(pending.Id);
             RefreshPendingVisits(pending.Id);
+            VisitRunSelection.ApplySettings(pending, settings);
             await RunAsync(pending, token, resume: true);
             return;
         }
@@ -690,6 +728,17 @@ public sealed class MainViewModel : INotifyPropertyChanged
         if (!IsUnlocked) return;
         var copy = Serialization.Copy(settings);
         copy.JiraUrl = JiraUrl.Trim().TrimEnd('/'); copy.PortalUrl = PortalUrl.Trim(); copy.QueueUrl = QueueUrl.Trim();
+        copy.ClosingTeam = ClosingTeam.Trim();
+        copy.Jira.RequestType = RequestType.Trim(); copy.Jira.WaitingStatus = WaitingStatus.Trim(); copy.Jira.InProgressStatus = InProgressStatus.Trim();
+        copy.Jira.ClosedStatuses = ClosedStatuses.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        copy.Jira.StartTransition = StartTransition.Trim(); copy.Jira.CloseTransition = CloseTransition.Trim(); copy.Jira.IssuePath = IssuePath.Trim();
+        // Um número inválido fica fora do intervalo e a validação explica o limite.
+        copy.TimeoutSeconds = int.TryParse(TimeoutSeconds.Trim(), out var timeout) ? timeout : 0;
+        copy.LoginTimeoutMinutes = int.TryParse(LoginTimeoutMinutes.Trim(), out var login) ? login : 0;
+        // Só rótulos diferentes do padrão ficam no arquivo; o padrão mantém as variações aceitas.
+        copy.FieldLabels = FieldLabels.Where(f => !string.IsNullOrWhiteSpace(f.Label) &&
+                !string.Equals(f.Label.Trim(), f.Field.Defaults[0], StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(f => f.Field.Key, f => f.Label.Trim());
         copy.Diagnostics ??= new DiagnosticOptions();
         var errors = ProfileValidation.ValidateSettings(copy);
         if (errors.Count > 0) { ShowSettingsStatus(string.Join(Environment.NewLine, errors), true); return; }
@@ -699,6 +748,19 @@ public sealed class MainViewModel : INotifyPropertyChanged
             diagnostics.Configure(copy.Diagnostics);
             ShowSettingsStatus("Configurações salvas.", false);
         });
+    }
+
+    private void ShowSettings()
+    {
+        JiraUrl = settings.JiraUrl; PortalUrl = settings.PortalUrl; QueueUrl = settings.QueueUrl;
+        ClosingTeam = settings.ClosingTeam;
+        var workflow = settings.Jira;
+        RequestType = workflow.RequestType; WaitingStatus = workflow.WaitingStatus; InProgressStatus = workflow.InProgressStatus;
+        ClosedStatuses = string.Join(Environment.NewLine, workflow.ClosedStatuses);
+        StartTransition = workflow.StartTransition; CloseTransition = workflow.CloseTransition; IssuePath = workflow.IssuePath;
+        TimeoutSeconds = settings.TimeoutSeconds.ToString(); LoginTimeoutMinutes = settings.LoginTimeoutMinutes.ToString();
+        foreach (var item in FieldLabels) item.Label = JiraFields.Labels(settings, item.Field.Key)[0];
+        SettingsStatus = "";
     }
 
     private void ShowSettingsStatus(string text, bool error)

@@ -95,7 +95,8 @@ internal sealed class DomControls(IPage page, IReadOnlyDictionary<string, string
         return locator is not null && await locator.IsEnabledAsync();
     }
 
-    public async Task ChooseAsync(string key, string[] labels, string query, Regex exactOption, string expected, ILocator? scope = null)
+    public async Task ChooseAsync(string key, string[] labels, string query, Regex exactOption, string expected, ILocator? scope = null,
+        string correction = "Confira o valor informado e retome a visita.")
     {
         var field = await FieldAsync(key, labels, scope);
         var tag = await field.EvaluateAsync<string>("e => e.tagName.toLowerCase()");
@@ -109,7 +110,7 @@ internal sealed class DomControls(IPage page, IReadOnlyDictionary<string, string
             {
                 diagnostics?.Event("control.option_missing", "Opção configurada ausente da lista.", DiagnosticLevel.Warning,
                     new() { ["controlKey"] = key, ["optionCount"] = options.Length }, errorCode: "FIELD_OPTION_NOT_FOUND");
-                var error = new InvalidOperationException($"“{expected}” não está entre as opções de “{labels[0]}” no Jira. Confira o valor no arquivo settings.json e retome a visita.");
+                var error = new InvalidOperationException($"“{expected}” não está entre as opções de “{labels[0]}” no Jira. {correction}");
                 error.Data["DiagnosticCode"] = "FIELD_OPTION_NOT_FOUND";
                 throw error;
             }

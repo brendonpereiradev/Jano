@@ -212,6 +212,11 @@ internal static class Program
             Check(jira.Text == model.JiraUrl, "As configurações não apareceram na tela.");
             jira.Text = "https://outro.example.com";
             Check(model.JiraUrl == "https://outro.example.com", "Editar o endereço não chegou ao ViewModel.");
+            var team = Control<TextBox>(window, "ClosingTeamBox");
+            Check(team.Text == model.ClosingTeam && Control<ItemsControl>(window, "FieldLabelsList").Items.Count == JiraFields.All.Length,
+                "A equipe e os rótulos dos campos não apareceram na tela.");
+            team.Text = "Outra Equipe";
+            Check(model.ClosingTeam == "Outra Equipe", "Editar a equipe não chegou ao ViewModel.");
             Screenshot(window, "configuracoes");
             window.SelectPage(0);
             window.Width = window.MinWidth; window.Height = window.MinHeight;
@@ -482,6 +487,24 @@ internal static class Program
         var saved = Await(model.Store.LoadSettingsAsync());
         Check(model.SettingsStatus == "Configurações salvas." && model.SettingsStatusTone == StatusTone.Success && saved.JiraUrl == "https://jira.example.com",
             "O endereço corrigido não foi salvo sem a barra final.");
+        Check(model.ClosingTeam == "CTS Field Services" && model.ClosedStatuses.Contains("Fechado") && model.TimeoutSeconds == "60" &&
+            model.FieldLabels.Single(f => f.Field.Key == "floor").Label == "Andar", "As configurações não foram exibidas para edição.");
+        model.TimeoutSeconds = "abc"; Await(model.SaveSettingsAsync());
+        Check(model.SettingsStatusTone == StatusTone.Danger && model.SettingsStatus.Contains("10 e 180"), "Um tempo de espera inválido foi aceito.");
+        model.TimeoutSeconds = " 90 "; model.LoginTimeoutMinutes = "30"; model.ClosingTeam = "  Minha Equipe ";
+        model.RequestType = "Manutenção"; model.WaitingStatus = "Aberto"; model.InProgressStatus = "Em execução";
+        model.StartTransition = "Iniciar"; model.CloseTransition = "Concluir"; model.ClosedStatuses = "Concluído\r\n\r\n Resolvido \r\n";
+        model.IssuePath = "/browse/{key}";
+        model.FieldLabels.Single(f => f.Field.Key == "floor").Label = "Piso";
+        Check(model.SettingsStatus.Length == 0, "Editar um rótulo não limpou o aviso.");
+        Await(model.SaveSettingsAsync());
+        saved = Await(model.Store.LoadSettingsAsync());
+        Check(model.SettingsStatusTone == StatusTone.Success && saved.ClosingTeam == "Minha Equipe" && saved.TimeoutSeconds == 90 &&
+            saved.LoginTimeoutMinutes == 30 && saved.Jira.RequestType == "Manutenção" && saved.Jira.WaitingStatus == "Aberto" &&
+            saved.Jira.InProgressStatus == "Em execução" && saved.Jira.StartTransition == "Iniciar" && saved.Jira.CloseTransition == "Concluir" &&
+            saved.Jira.ClosedStatuses.SequenceEqual(["Concluído", "Resolvido"]) && saved.Jira.IssuePath == "/browse/{key}",
+            "Os valores editados em Configurações não foram salvos.");
+        Check(saved.FieldLabels.Count == 1 && saved.FieldLabels["floor"] == "Piso", "Só o rótulo alterado deveria ficar salvo.");
     }
 
     private static void ThemeSwitch()

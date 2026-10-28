@@ -183,7 +183,7 @@ run.Settings.JiraUrl = $"http://127.0.0.1:{port}";
 run.Settings.PortalUrl = run.Settings.JiraUrl + "/servicedesk/customer/portal/1/group/1/create/1";
 run.Settings.QueueUrl = run.Settings.JiraUrl + "/queue";
 run.Settings.TimeoutSeconds = 10;
-// Valor como pode ficar no settings.json editado à mão; o Jira exibe "CTS Field Services".
+// Valor como pode ser digitado em Configurações; o Jira exibe "CTS Field Services".
 run.Settings.ClosingTeam = "  CTS   Field Services ";
 var engine = new ExecutionEngine(store, () => new EdgeJiraAutomation(store), diagnostics);
 engine.Progress += r => Console.WriteLine(r.Message);

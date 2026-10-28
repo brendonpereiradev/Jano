@@ -39,7 +39,7 @@ O progresso é salvo no computador antes e depois de cada ação. Assim, uma vis
 
 ### Fluxo de uso resumido
 
-1. Configure os endereços do Jira em **Configurações** (seção 3).
+1. Configure os endereços, a equipe e o fluxo do Jira em **Configurações** (seção 3).
 2. Cadastre a unidade e seus pavimentos em **Perfis e pavimentos** (seção 4).
 3. Verifique o acesso ao Edge e faça login no Jira (seção 5).
 4. Escolha o perfil, marque os pavimentos e execute a visita (seção 6).
@@ -91,35 +91,68 @@ Para iniciar o aplicativo compilado:
 
 ## 3. Configurar o Jira
 
-Em **Configurações**, preencha os três endereços do ambiente:
+Tudo o que depende do Jira da sua equipe fica em **Configurações**. Ajuste os valores e clique em **Salvar configurações**, no fim da página.
+
+Os endereços que vêm preenchidos na primeira abertura são fictícios. Preencha os do seu ambiente:
 
 | Campo | Endereço esperado |
 |---|---|
 | Endereço do Jira | Endereço principal do servidor. |
 | Endereço do formulário de visita preventiva | Página usada para abrir a solicitação no portal. |
 | Endereço da fila de atendimento | Fila de chamados do ambiente. |
+| Caminho do chamado | Caminho do chamado a partir do endereço do Jira. |
 
-Os três endereços devem usar HTTPS e pertencer ao mesmo servidor. Clique em **Salvar configurações**. Os endereços que vêm preenchidos na primeira abertura são fictícios.
+Os três endereços devem usar HTTPS e pertencer ao mesmo servidor. No caminho do chamado, `{key}` é o número completo, como `SD-123`, e `{project}` é o prefixo, como `SD`. O caminho deve começar com `/` e conter `{key}`.
 
 > **Atenção.** A conta do técnico precisa ter acesso ao formulário e às ações de atribuição, atendimento e fechamento. O fluxo da automação deve corresponder aos campos e às transições disponíveis nesse Jira.
 
-### Nomes do fluxo do Jira
+### Equipe e fluxo de atendimento
 
-Os nomes de status, transições e tipo de solicitação ficam na seção `Jira` do arquivo `settings.json`. Se o fluxo do Jira mudar, feche o Jano, ajuste esses valores e abra o aplicativo de novo.
+Os nomes devem ser escritos como aparecem no Jira. Nenhum pode ficar vazio.
 
 | Campo | Padrão |
 |---|---|
-| `WaitingStatus` | `Aguardando N2` |
-| `InProgressStatus` | `Em andamento N2` |
-| `ClosedStatuses` | `Fechado`, `Closed`, `Concluído`, `Concluido` |
-| `RequestType` | `Visita Preventiva` |
-| `StartTransition` | `Iniciar Atendimento` |
-| `CloseTransition` | `Transitar para Fechado` |
-| `IssuePath` | `/jira/servicedesk/projects/{project}/queues/issue/{key}` |
+| Equipe de fechamento | `CTS Field Services` |
+| Tipo de solicitação | `Visita Preventiva` |
+| Status aguardando atendimento | `Aguardando N2` |
+| Transição para iniciar o atendimento | `Iniciar Atendimento` |
+| Status em atendimento | `Em andamento N2` |
+| Transição para fechar | `Transitar para Fechado` |
+| Status de chamado fechado | `Fechado`, `Closed`, `Concluído`, `Concluido` (um por linha) |
+| Caminho do chamado | `/jira/servicedesk/projects/{project}/queues/issue/{key}` |
 
-`IssuePath` é o caminho do chamado a partir do endereço do Jira: `{key}` é o número completo, como `SD-123`, e `{project}` é o prefixo, como `SD`. Nenhum valor pode ficar vazio.
+### Campos do formulário
 
-Um arquivo de versão anterior usa os padrões e passa a mostrar a seção depois que as configurações forem salvas pelo aplicativo. Uma visita já iniciada guarda uma cópia das configurações, e a mudança vale apenas para as visitas novas.
+O Jano encontra os campos do formulário e do chamado pelo rótulo exibido no Jira. Se o formulário da sua equipe usa outro nome, informe-o aqui. Um campo em branco volta ao rótulo padrão.
+
+| Campo | Rótulo padrão |
+|---|---|
+| Solicitante (em nome de) | `Abrir esta requisição em nome de` |
+| Título | `Título` |
+| Ramal | `Ramal do solicitante` |
+| Nome completo | `Nome completo do usuário` |
+| Unidade | `Unidade - Usuário` |
+| Pavimento | `Andar` |
+| Setor | `Setor` (aceita também `Setor/Local`) |
+| Sala | `Sala` |
+| Telefone | `Telefone` |
+| Detalhes / justificativas | `Detalhes / justificativas` |
+| Botão de envio do formulário | `Enviar` |
+| Resolução | `Resolução do chamado` |
+| Equipe de fechamento | `Equipe` |
+
+Os nomes que o próprio Jira exibe, como Responsável, Relator, Assign to me e Reply to customer, são reconhecidos em português e em inglês e não precisam de configuração.
+
+### Tempos de espera
+
+| Campo | Padrão | Limites |
+|---|---|---|
+| Espera por página ou campo do Jira | 60 segundos | 10 a 180 |
+| Espera pelo login no Edge | 15 minutos | 1 a 120 |
+
+### Visitas pendentes
+
+Ao retomar, a visita pendente usa as configurações salvas no momento. Assim, um valor corrigido em **Configurações** vale sem descartar a visita. A única exceção é a equipe de fechamento: depois que algum chamado da visita foi fechado, a visita mantém a equipe com que começou a fechar, e os chamados já fechados continuam sendo conferidos com ela.
 
 ### Aparência
 
@@ -247,7 +280,7 @@ O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`. A pasta mantém o no
 | Caminho | Conteúdo |
 |---|---|
 | `profiles.json` | Perfis, pavimentos e resoluções. |
-| `settings.json` | Endereços do Jira e configurações técnicas. |
+| `settings.json` | Valores salvos em **Configurações** e configurações técnicas. |
 | `runs/` | Dados e progresso de cada visita. |
 | `browser/` | Sessão do Microsoft Edge utilizada pelo Jano. |
 | `logs/` | Registros de abertura e funcionamento do aplicativo. |
@@ -262,7 +295,9 @@ O aplicativo guarda seus dados em `%LOCALAPPDATA%\Vistora`. A pasta mantém o no
 | O painel lista campos em vermelho e nenhum chamado é aberto. | O perfil está incompleto. Corrija os campos em **Perfis e pavimentos** e execute de novo. |
 | O Edge pede login durante a execução. | Faça login na janela do Edge; a execução continua em seguida. |
 | Os chamados saem em nome do técnico errado. | Encerre a sessão no Jira pela janela do Edge e entre com a conta correta. |
-| O fluxo do Jira mudou de nome (status ou transições). | Feche o Jano, ajuste a seção `Jira` do `settings.json` e abra o aplicativo de novo. |
+| O fluxo do Jira mudou de nome (status ou transições). | Ajuste os nomes em **Configurações** e retome a visita. |
+| O Jano não encontra um campo do formulário. | Informe o rótulo exibido no Jira em **Configurações**, no painel **Campos do formulário**. |
+| A equipe de fechamento não está entre as opções do Jira. | Corrija **Equipe de fechamento** em **Configurações** e retome a visita. |
 | A execução parou no meio. | Volte a **Executar visita** e use **Retomar visita preventiva**. |
 | O número do chamado aberto não foi identificado. | Consulte a fila do Jira e informe o número quando a retomada pedir. |
 | É preciso enviar detalhes de uma falha para análise. | Use **Exportar log** no Histórico e envie o ZIP gerado. |

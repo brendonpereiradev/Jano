@@ -19,7 +19,7 @@ public partial class MainWindow : JanoWindow
         new("Executar visita", "Executar visita preventiva", "Escolha a unidade e os pavimentos que você visitou.", ""),
         new("Perfis e pavimentos", "Perfis e pavimentos", "Organize os dados de cada solicitante e unidade.", ""),
         new("Histórico", "Histórico de visitas", "Confira os chamados e os resultados de cada visita.", ""),
-        new("Configurações", "Configurações", "Defina onde a automação deve abrir os chamados.", "")
+        new("Configurações", "Configurações", "Ajuste o Jano ao Jira e ao fluxo da sua equipe.", "")
     ];
 
     public MainWindow(MainViewModel viewModel, int startPage = 0)

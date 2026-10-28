@@ -32,6 +32,7 @@ Na versão 2.0.0 o projeto recebeu um rework visual para se alinhar aos outros p
 | Retomada de pendências | Recupera os dados originais da visita e confere os chamados antes de continuar. Visitas sem chamados podem ser descartadas. |
 | Conferência de resultados | Verifica responsável, status, resolução, comentário público e equipe no fechamento. |
 | Histórico e diagnóstico | Reúne os resultados das visitas e exporta um ZIP de registros para análise. |
+| Configuração pela tela | Endereços, equipe de fechamento, status, transições, rótulos dos campos do formulário e tempos de espera são editados em Configurações. |
 | Tema claro e escuro | Troca na hora, pela barra de título ou pelas Configurações, e fica salvo no computador. |
 
 ---
@@ -76,7 +77,7 @@ Na versão 2.0.0 o projeto recebeu um rework visual para se alinhar aos outros p
    & (Get-VistoraDotnet) run --project .\src\Vistora.Desktop -c Release --no-build
    ```
 
-4. Em **Configurações**, informe os endereços do Jira, do formulário e da fila. Em **Perfis e pavimentos**, cadastre a unidade e faça login no Edge quando solicitado.
+4. Em **Configurações**, informe os endereços do Jira, do formulário e da fila, a equipe de fechamento e os nomes do fluxo do Jira da sua equipe. Em **Perfis e pavimentos**, cadastre a unidade e faça login no Edge quando solicitado.
 
 ### Comandos disponíveis
 

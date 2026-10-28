@@ -75,9 +75,50 @@ public sealed class AppSettings
     private JiraWorkflow jira = new();
     // Arquivos anteriores à 1.3.0 não têm esta seção e recebem os valores padrão.
     public JiraWorkflow Jira { get => jira; set => jira = value ?? new(); }
+    private Dictionary<string, string> fieldLabels = new(StringComparer.OrdinalIgnoreCase);
+    // Rótulos dos campos do formulário do Jira, por chave de JiraFields. Ausente, vale o rótulo padrão.
+    public Dictionary<string, string> FieldLabels
+    {
+        get => fieldLabels;
+        set => fieldLabels = new(value ?? [], StringComparer.OrdinalIgnoreCase);
+    }
 }
 
-// Nomes do fluxo do Jira da unidade. Mudanças no fluxo só exigem editar o settings.json.
+public sealed record JiraField(string Key, string Description, string[] Defaults);
+
+// Campos do formulário e do chamado que o Jano preenche e confere. Cada Jira nomeia os
+// campos do seu jeito; o rótulo configurado substitui os padrões, que aceitam variações.
+public static class JiraFields
+{
+    public static readonly JiraField[] All =
+    [
+        new("reporter", "Solicitante (em nome de)", ["Abrir esta requisição em nome de"]),
+        new("title", "Título", ["Título"]),
+        new("extension", "Ramal", ["Ramal do solicitante"]),
+        new("fullName", "Nome completo", ["Nome completo do usuário"]),
+        new("unit", "Unidade", ["Unidade - Usuário", "Unidade - usuário"]),
+        new("floor", "Pavimento", ["Andar"]),
+        new("sector", "Setor", ["Setor", "Setor/Local"]),
+        new("room", "Sala", ["Sala"]),
+        new("phone", "Telefone", ["Telefone"]),
+        new("description", "Detalhes / justificativas", ["Detalhes / justificativas", "Detalhes / justificativas:"]),
+        new("submit", "Botão de envio do formulário", ["Enviar"]),
+        new("resolution", "Resolução", ["Resolução do chamado"]),
+        new("team", "Equipe de fechamento", ["Equipe"])
+    ];
+
+    public static string[] Labels(AppSettings settings, string key)
+    {
+        var field = All.Single(f => f.Key == key);
+        var configured = settings.FieldLabels.GetValueOrDefault(key);
+        if (string.IsNullOrWhiteSpace(configured)) return field.Defaults;
+        configured = Regex.Replace(configured, @"\s+", " ").Trim();
+        // O primeiro padrão mantém as variações aceitas; outro rótulo vale sozinho.
+        return string.Equals(configured, field.Defaults[0], StringComparison.OrdinalIgnoreCase) ? field.Defaults : [configured];
+    }
+}
+
+// Nomes do fluxo do Jira da unidade, editáveis em Configurações.
 public sealed class JiraWorkflow
 {
     public string WaitingStatus { get; set; } = "Aguardando N2";
@@ -178,16 +219,20 @@ public static class ProfileValidation
                 jira is null || !string.Equals(parsed.Authority, jira.Authority, StringComparison.OrdinalIgnoreCase))
                 errors.Add("O formulário e a fila devem pertencer ao mesmo endereço HTTPS do Jira.");
         if (settings.TimeoutSeconds is < 10 or > 180) errors.Add("O tempo de espera deve estar entre 10 e 180 segundos.");
-        if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Informe a equipe de fechamento em ClosingTeam, no arquivo settings.json.");
+        if (settings.LoginTimeoutMinutes is < 1 or > 120) errors.Add("O tempo para login deve estar entre 1 e 120 minutos.");
+        if (string.IsNullOrWhiteSpace(settings.ClosingTeam)) errors.Add("Preencha Equipe de fechamento.");
         var workflow = settings.Jira;
-        foreach (var (name, value) in new[] { ("WaitingStatus", workflow.WaitingStatus), ("InProgressStatus", workflow.InProgressStatus),
-                     ("RequestType", workflow.RequestType), ("StartTransition", workflow.StartTransition),
-                     ("CloseTransition", workflow.CloseTransition), ("IssuePath", workflow.IssuePath) })
-            if (string.IsNullOrWhiteSpace(value)) errors.Add($"Informe {name} na seção Jira do arquivo settings.json.");
+        foreach (var (label, value) in new[] { ("Tipo de solicitação", workflow.RequestType), ("Status aguardando atendimento", workflow.WaitingStatus),
+                     ("Status em atendimento", workflow.InProgressStatus), ("Transição para iniciar o atendimento", workflow.StartTransition),
+                     ("Transição para fechar", workflow.CloseTransition), ("Caminho do chamado", workflow.IssuePath) })
+            if (string.IsNullOrWhiteSpace(value)) errors.Add($"Preencha {label}.");
         if (workflow.ClosedStatuses.Count == 0 || workflow.ClosedStatuses.Any(string.IsNullOrWhiteSpace))
-            errors.Add("Informe pelo menos um status em ClosedStatuses, sem itens vazios, na seção Jira do arquivo settings.json.");
+            errors.Add("Informe pelo menos um status de chamado fechado, sem linhas vazias.");
         if (!string.IsNullOrWhiteSpace(workflow.IssuePath) && (!workflow.IssuePath.StartsWith('/') || !workflow.IssuePath.Contains("{key}", StringComparison.Ordinal)))
-            errors.Add("IssuePath, na seção Jira do arquivo settings.json, deve começar com / e conter {key}.");
+            errors.Add("O caminho do chamado deve começar com / e conter {key}.");
+        foreach (var key in settings.FieldLabels.Keys)
+            if (JiraFields.All.All(f => !string.Equals(f.Key, key, StringComparison.OrdinalIgnoreCase)))
+                errors.Add($"Rótulo de campo desconhecido: {key}.");
         return errors.Distinct().ToList();
     }
 

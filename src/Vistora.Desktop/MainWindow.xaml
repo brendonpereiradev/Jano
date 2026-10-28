@@ -215,20 +215,66 @@
         <TabItem>
           <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
             <StackPanel MaxWidth="720" HorizontalAlignment="Left">
-              <Border Style="{StaticResource Panel}">
-                <StackPanel>
-                  <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Jira" Style="{StaticResource PanelTitle}"/></Border>
-                  <StackPanel x:Name="SettingsPanel" IsEnabled="{Binding IsUnlocked}" Margin="18,14,18,16">
-                    <TextBlock Text="Endereço do Jira" Style="{StaticResource Label}"/><TextBox x:Name="JiraUrlBox" FontFamily="Consolas" Text="{Binding JiraUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Endereço do formulário de visita preventiva" Style="{StaticResource Label}"/><TextBox x:Name="PortalUrlBox" FontFamily="Consolas" Text="{Binding PortalUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                    <TextBlock Text="Endereço da fila de atendimento" Style="{StaticResource Label}"/><TextBox x:Name="QueueUrlBox" FontFamily="Consolas" Text="{Binding QueueUrl, UpdateSourceTrigger=PropertyChanged}"/>
-                    <WrapPanel Margin="0,4,0,0">
-                      <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
-                      <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="360"/>
-                    </WrapPanel>
+              <StackPanel x:Name="SettingsPanel" IsEnabled="{Binding IsUnlocked}">
+                <Border Style="{StaticResource Panel}">
+                  <StackPanel>
+                    <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Jira" Style="{StaticResource PanelTitle}"/></Border>
+                    <StackPanel Margin="18,14,18,4">
+                      <TextBlock Text="Endereço do Jira" Style="{StaticResource Label}"/><TextBox x:Name="JiraUrlBox" FontFamily="Consolas" Text="{Binding JiraUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Endereço do formulário de visita preventiva" Style="{StaticResource Label}"/><TextBox x:Name="PortalUrlBox" FontFamily="Consolas" Text="{Binding PortalUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Endereço da fila de atendimento" Style="{StaticResource Label}"/><TextBox x:Name="QueueUrlBox" FontFamily="Consolas" Text="{Binding QueueUrl, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Caminho do chamado" Style="{StaticResource Label}"/><TextBox x:Name="IssuePathBox" FontFamily="Consolas" Text="{Binding IssuePath, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="A partir do endereço do Jira: {key} é o número do chamado, como SD-123, e {project} é o prefixo, como SD." Style="{StaticResource Hint}" Margin="0,-6,0,12"/>
+                    </StackPanel>
                   </StackPanel>
-                </StackPanel>
-              </Border>
+                </Border>
+                <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                  <StackPanel>
+                    <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Equipe e fluxo de atendimento" Style="{StaticResource PanelTitle}"/></Border>
+                    <StackPanel Margin="18,14,18,4">
+                      <TextBlock Text="Os nomes devem ser iguais aos exibidos no Jira." Style="{StaticResource Hint}" Margin="0,0,0,12"/>
+                      <TextBlock Text="Equipe de fechamento" Style="{StaticResource Label}"/><TextBox x:Name="ClosingTeamBox" Text="{Binding ClosingTeam, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Tipo de solicitação" Style="{StaticResource Label}"/><TextBox x:Name="RequestTypeBox" Text="{Binding RequestType, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Status aguardando atendimento" Style="{StaticResource Label}"/><TextBox x:Name="WaitingStatusBox" Text="{Binding WaitingStatus, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Transição para iniciar o atendimento" Style="{StaticResource Label}"/><TextBox x:Name="StartTransitionBox" Text="{Binding StartTransition, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Status em atendimento" Style="{StaticResource Label}"/><TextBox x:Name="InProgressStatusBox" Text="{Binding InProgressStatus, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Transição para fechar" Style="{StaticResource Label}"/><TextBox x:Name="CloseTransitionBox" Text="{Binding CloseTransition, UpdateSourceTrigger=PropertyChanged}"/>
+                      <TextBlock Text="Status de chamado fechado (um por linha)" Style="{StaticResource Label}"/>
+                      <TextBox x:Name="ClosedStatusesBox" Text="{Binding ClosedStatuses, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="96" VerticalContentAlignment="Top"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                  <StackPanel>
+                    <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Campos do formulário" Style="{StaticResource PanelTitle}"/></Border>
+                    <StackPanel Margin="18,14,18,4">
+                      <TextBlock Text="Rótulo de cada campo como aparece no formulário e no chamado do Jira. Em branco, vale o rótulo padrão." Style="{StaticResource Hint}" Margin="0,0,0,12"/>
+                      <ItemsControl x:Name="FieldLabelsList" ItemsSource="{Binding FieldLabels}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <StackPanel><TextBlock Text="{Binding Description}" Style="{StaticResource Label}"/><TextBox Text="{Binding Label, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
+                  <StackPanel>
+                    <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Tempos de espera" Style="{StaticResource PanelTitle}"/></Border>
+                    <StackPanel Margin="18,14,18,4">
+                      <TextBlock Text="Espera por página ou campo do Jira (segundos, de 10 a 180)" Style="{StaticResource Label}"/>
+                      <TextBox x:Name="TimeoutSecondsBox" Text="{Binding TimeoutSeconds, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left"/>
+                      <TextBlock Text="Espera pelo login no Edge (minutos, de 1 a 120)" Style="{StaticResource Label}"/>
+                      <TextBox x:Name="LoginTimeoutBox" Text="{Binding LoginTimeoutMinutes, UpdateSourceTrigger=PropertyChanged}" Width="120" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
+                <WrapPanel Margin="0,14,0,0">
+                  <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
+                  <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
+                </WrapPanel>
+              </StackPanel>
               <!-- Fora do SettingsPanel: o tema pode mudar mesmo durante uma visita. -->
               <Border Style="{StaticResource Panel}" Margin="0,14,0,0">
                 <StackPanel>

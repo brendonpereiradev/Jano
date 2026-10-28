@@ -26,6 +26,17 @@ public static class VisitRunSelection
         return HasProgress(selected) ? selected : PendingForProfile(runs, selected.Profile.Id) ?? selected;
     }
 
+    // A visita retomada usa as configurações atuais, para que um valor corrigido em Configurações
+    // valha sem descartá-la. A equipe só muda antes do primeiro fechamento: os já enviados são
+    // conferidos com a equipe que receberam.
+    public static void ApplySettings(VisitRun run, AppSettings current)
+    {
+        var team = run.Settings.ClosingTeam;
+        run.Settings = Serialization.Copy(current);
+        if (run.Floors.Any(f => f.Stage == FloorStage.Closed || f.PendingAction == PendingAction.Close))
+            run.Settings.ClosingTeam = team;
+    }
+
     // Sem chamado nem ação em andamento, nada ficou no Jira e a visita pode ser apagada sem conferência.
     public static bool CanDiscard(VisitRun run) => run.State != RunState.Completed &&
         run.Floors.All(f => f.IssueKey is null && f.PendingAction == PendingAction.None);

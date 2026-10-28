@@ -20,6 +20,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private IPage Page => page ?? throw new InvalidOperationException("O navegador não está conectado.");
     private DomControls Ui => controls ?? throw new InvalidOperationException("O navegador não está conectado.");
     private JiraWorkflow Workflow => settings.Jira;
+    private string[] Labels(string field) => JiraFields.Labels(settings, field);
     private static readonly Regex IssueKeyPattern = new(@"\b([A-Z][A-Z0-9]*-\d+)\b");
     private static readonly TimeSpan SubmitStablePeriod = TimeSpan.FromMilliseconds(300);
     // Chamados com todos os campos já conferidos nesta tentativa, com a visita e o pavimento correspondentes.
@@ -140,10 +141,10 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         if (!IsPortalUrl(Page.Url)) return false;
         if (settings.SelectorOverrides.TryGetValue("portal.ready", out var selector))
             return await DomControls.IsUniqueVisibleAsync(Page.Locator(selector).Filter(new() { Visible = true }));
-        foreach (var (key, label) in new[] { ("portal.reporter", "Abrir esta requisição em nome de"), ("portal.title", "Título"), ("portal.extension", "Ramal do solicitante") })
+        foreach (var (key, field) in new[] { ("portal.reporter", "reporter"), ("portal.title", "title"), ("portal.extension", "extension") })
         {
-            var field = await Ui.TryFieldAsync(key, [label]);
-            if (field is null || !await field.IsEnabledAsync()) return false;
+            var control = await Ui.TryFieldAsync(key, Labels(field));
+            if (control is null || !await control.IsEnabledAsync()) return false;
         }
         return true;
     }
@@ -161,21 +162,21 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         // Inclui os envios de anexos, que continuam depois que o nome do arquivo aparece na página.
         using var mutations = new MutationTracker(Page, settings.JiraUrl);
         var profile = run.Profile;
-        await Ui.ChooseAsync("portal.reporter", ["Abrir esta requisição em nome de"], profile.ReporterEmail,
+        await Ui.ChooseAsync("portal.reporter", Labels("reporter"), profile.ReporterEmail,
             new Regex($"(?:^|[\\s(<]){Regex.Escape(profile.ReporterEmail)}(?=$|[\\s)>])", RegexOptions.IgnoreCase), profile.ReporterEmail);
         cancellationToken.ThrowIfCancellationRequested();
         var filled = new List<(ILocator, string)>();
         async Task FillTrackedAsync(string key, string[] labels, string value) => filled.Add((await Ui.FillAsync(key, labels, value), value));
-        await FillTrackedAsync("portal.title", ["Título"], profile.Title);
-        await FillTrackedAsync("portal.extension", ["Ramal do solicitante"], profile.Extension);
-        await FillTrackedAsync("portal.fullName", ["Nome completo do usuário"], profile.FullName);
-        await Ui.ChooseAsync("portal.unit", ["Unidade - Usuário", "Unidade - usuário"], profile.Unit,
+        await FillTrackedAsync("portal.title", Labels("title"), profile.Title);
+        await FillTrackedAsync("portal.extension", Labels("extension"), profile.Extension);
+        await FillTrackedAsync("portal.fullName", Labels("fullName"), profile.FullName);
+        await Ui.ChooseAsync("portal.unit", Labels("unit"), profile.Unit,
             new Regex($"^{Regex.Escape(profile.Unit)}$", RegexOptions.IgnoreCase), profile.Unit);
-        await FillTrackedAsync("portal.floor", ["Andar"], floor.Floor.Name);
-        await FillTrackedAsync("portal.sector", ["Setor", "Setor/Local"], floor.Floor.Sector);
-        await FillTrackedAsync("portal.room", ["Sala"], floor.Floor.Room);
-        await FillTrackedAsync("portal.phone", ["Telefone"], profile.Phone);
-        await FillTrackedAsync("portal.description", ["Detalhes / justificativas", "Detalhes / justificativas:"], profile.Description);
+        await FillTrackedAsync("portal.floor", Labels("floor"), floor.Floor.Name);
+        await FillTrackedAsync("portal.sector", Labels("sector"), floor.Floor.Sector);
+        await FillTrackedAsync("portal.room", Labels("room"), floor.Floor.Room);
+        await FillTrackedAsync("portal.phone", Labels("phone"), profile.Phone);
+        await FillTrackedAsync("portal.description", Labels("description"), profile.Description);
         if (profile.Attachments.Count > 0)
         {
             diagnostics?.Event("attachments.prepared", "Anexos preparados.", details: new() { ["count"] = profile.Attachments.Count });
@@ -187,14 +188,14 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
                 await Page.GetByText(Path.GetFileName(attachment), new() { Exact = true }).First.WaitForAsync();
             mutations.MarkActivity();
         }
-        await WaitReadyToSubmitAsync("portal.submit", ["Enviar"], null, mutations, filled, cancellationToken);
+        await WaitReadyToSubmitAsync("portal.submit", Labels("submit"), null, mutations, filled, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
     }
 
     public async Task<string> SubmitCreateAsync(VisitRun run, FloorRun floor)
     {
         var oldUrl = Page.Url;
-        await Ui.ClickAsync("portal.submit", ["Enviar"]);
+        await Ui.ClickAsync("portal.submit", Labels("submit"));
         var deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
         while (DateTimeOffset.UtcNow < deadline)
         {
@@ -222,7 +223,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private string IssueUrl(string key) => settings.JiraUrl.TrimEnd('/') +
         Workflow.IssuePath.Trim().Replace("{project}", key.Split('-')[0], StringComparison.Ordinal).Replace("{key}", key, StringComparison.Ordinal);
 
-    // Os nomes vêm do settings.json editado à mão; espaços extras não fazem parte do nome no Jira.
+    // Os nomes são digitados em Configurações; espaços extras não fazem parte do nome no Jira.
     private static bool SameText(string actual, string expected) =>
         string.Equals(DomControls.Normalize(actual), DomControls.Normalize(expected), StringComparison.OrdinalIgnoreCase);
     private bool IsClosedStatus(string status) => Workflow.ClosedStatuses.Any(closed => SameText(status, closed));
@@ -296,7 +297,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var teamMatches = false;
         if (closed)
         {
-            teamMatches = string.Equals(DomControls.Normalize(await Ui.ValueAsync("issue.team", ["Equipe"])),
+            teamMatches = string.Equals(DomControls.Normalize(await Ui.ValueAsync("issue.team", Labels("team"))),
                 DomControls.Normalize(run.Settings.ClosingTeam), StringComparison.OrdinalIgnoreCase);
             resolutionMatches = await ResolutionMatchesAsync(floor.Floor.Resolution);
             publicMatches = await PublicCommentMatchesAsync(key, floor.Floor.Resolution, cancellationToken);
@@ -309,10 +310,10 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     {
         foreach (var (field, labels, expected) in new (string, string[], string)[]
         {
-            ("issue.floor", ["Andar"], floor.Floor.Name), ("issue.unit", ["Unidade - Usuário"], run.Profile.Unit),
-            ("issue.sector", ["Setor/Local", "Setor"], floor.Floor.Sector), ("issue.room", ["Sala"], floor.Floor.Room),
-            ("issue.fullName", ["Nome completo do usuário"], run.Profile.FullName),
-            ("issue.extension", ["Ramal do solicitante"], run.Profile.Extension),
+            ("issue.floor", Labels("floor"), floor.Floor.Name), ("issue.unit", Labels("unit"), run.Profile.Unit),
+            ("issue.sector", Labels("sector"), floor.Floor.Sector), ("issue.room", Labels("room"), floor.Floor.Room),
+            ("issue.fullName", Labels("fullName"), run.Profile.FullName),
+            ("issue.extension", Labels("extension"), run.Profile.Extension),
             ("issue.requestType", ["Request Type", "Tipo de solicitação"], Workflow.RequestType)
         })
         {
@@ -511,15 +512,16 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         await dialog.First.WaitForAsync();
         dialog = await DomControls.UniqueAsync(dialog, "Fechamento");
         using var mutations = new MutationTracker(Page, settings.JiraUrl);
-        var resolution = await Ui.FillAsync("close.resolution", ["Resolução do chamado"], floor.Floor.Resolution, dialog);
+        var resolution = await Ui.FillAsync("close.resolution", Labels("resolution"), floor.Floor.Resolution, dialog);
         // Seleciona explicitamente o comentário público antes de preencher o editor.
         var reply = dialog.GetByText("Reply to customer", new() { Exact = true });
         if (await DomControls.IsUniqueVisibleAsync(reply)) await reply.ClickAsync();
         else await Ui.ClickAsync("close.publicMode", ["Reply to customer", "Responder ao cliente"], dialog);
         var comment = await Ui.FillAsync("close.publicComment", ["Comentário público", "Reply to customer", "Responder ao cliente", "Comentário", "Comment"], floor.Floor.Resolution, dialog);
-        // O valor vem do settings.json editado à mão; espaços extras não fazem parte do nome da equipe.
+        // Espaços extras digitados em Configurações não fazem parte do nome da equipe.
         var team = DomControls.Normalize(run.Settings.ClosingTeam);
-        await Ui.ChooseAsync("close.team", ["Equipe"], team, new Regex($"^{Regex.Escape(team)}$"), team, dialog);
+        await Ui.ChooseAsync("close.team", Labels("team"), team, new Regex($"^{Regex.Escape(team)}$"), team, dialog,
+            "Corrija a Equipe de fechamento em Configurações e retome a visita.");
         await WaitReadyToSubmitAsync("close.submit", [closeTransition], dialog, mutations,
             [(resolution, floor.Floor.Resolution), (comment, floor.Floor.Resolution)], cancellationToken);
         closingDialog = dialog;
@@ -563,7 +565,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
 
     private async Task<bool> ResolutionMatchesAsync(string expected)
     {
-        var directValue = await Ui.TryValueAsync("issue.resolution", ["Resolução do chamado"]);
+        var directValue = await Ui.TryValueAsync("issue.resolution", Labels("resolution"));
         if (directValue is not null)
         { diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_field" }); return DomControls.Normalize(directValue) == DomControls.Normalize(expected); }
         // Esse campo aparece no modal, mas não está no layout principal do Jira da unidade.
@@ -575,7 +577,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             await tab.ClickAsync();
             diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_history" });
             var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
-                .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern("Resolução do chamado")), Visible = true });
+                .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
             try { await updates.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
             catch (TimeoutException) { return false; }
             var savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''");
