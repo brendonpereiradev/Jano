@@ -16,6 +16,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private ILocator? closingDialog;
     private AppSettings settings = new();
     private DiagnosticAttempt? diagnostics;
+    private Action<string> report = _ => { };
     public void SetDiagnostics(DiagnosticAttempt value) => diagnostics = value;
     private IPage Page => page ?? throw new InvalidOperationException("O navegador não está conectado.");
     private DomControls Ui => controls ?? throw new InvalidOperationException("O navegador não está conectado.");
@@ -31,6 +32,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     public async Task ConnectAsync(AppSettings appSettings, Action<string> report, CancellationToken cancellationToken, string? initialIssueKey = null)
     {
         settings = appSettings;
+        this.report = report;
         playwright = await Playwright.CreateAsync();
         try
         {
@@ -130,6 +132,61 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             new() { ["pageKind"] = PageKind(url) }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
     }
 
+    // O Jira pode pedir login de novo no meio da visita, quando a sessão expira. Em vez de esgotar o tempo
+    // esperando a página numa tela de login, a execução espera o login na janela do Edge e reabre o endereço.
+    private async Task OpenAsync(string url, Func<Task<bool>> ready, CancellationToken cancellationToken)
+    {
+        await NavigateAsync(url);
+        var begin = Stopwatch.GetTimestamp();
+        DateTimeOffset? loginDeadline = null;
+        var loginSince = 0L;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (Page.IsClosed) throw new InvalidOperationException("A janela do Edge foi fechada. Retome a execução para continuar.");
+            if (!NeedsLogin(Page.Url))
+            {
+                if (loginDeadline is not null)
+                {
+                    var waited = Stopwatch.GetElapsedTime(loginSince).TotalMilliseconds;
+                    diagnostics?.RecordDuration("browser.login_wait", waited);
+                    diagnostics?.Event("browser.wait_finished", "Espera concluída.", details: new() { ["waitKind"] = "login" }, durationMs: waited);
+                    report("Login confirmado. Retomando a visita.");
+                    loginDeadline = null;
+                    // Depois do login, o Jira pode abrir outra página no lugar da pedida.
+                    if (!IsTargetUrl(Page.Url, url)) await NavigateAsync(url);
+                    begin = Stopwatch.GetTimestamp();
+                }
+                if (await ready()) return;
+                if (Stopwatch.GetElapsedTime(begin) > TimeSpan.FromSeconds(settings.TimeoutSeconds))
+                    throw new TimeoutException($"Timeout {settings.TimeoutSeconds * 1000}ms exceeded.");
+            }
+            else
+            {
+                if (loginDeadline is null)
+                {
+                    loginDeadline = DateTimeOffset.UtcNow.AddMinutes(settings.LoginTimeoutMinutes);
+                    loginSince = Stopwatch.GetTimestamp();
+                    diagnostics?.Event("browser.wait_started", "Aguardando o navegador.", details: new() { ["waitKind"] = "login", ["pageKind"] = ObservedPageKind(Page.Url) });
+                    report("O Jira pediu login de novo. Faça login na janela do Edge; a execução continuará depois.");
+                    // A janela do Edge pode estar atrás do Jano.
+                    try { await Page.BringToFrontAsync(); } catch (PlaywrightException) { }
+                }
+                if (DateTimeOffset.UtcNow > loginDeadline)
+                { var timeoutError = new InvalidOperationException("O tempo para login terminou. Retome a execução quando estiver pronto."); timeoutError.Data["DiagnosticCode"] = "LOGIN_TIMEOUT"; throw timeoutError; }
+            }
+            await Task.Delay(500, cancellationToken);
+        }
+    }
+
+    // Fora do Jira (a Atlassian autentica em outro endereço) ou numa página de login do próprio Jira.
+    private bool NeedsLogin(string url) => ObservedPageKind(url) is "external" or "authentication";
+
+    // Só o tipo da página entra no diagnóstico, nunca o endereço.
+    private string ObservedPageKind(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) && string.Equals(uri.Authority, new Uri(settings.JiraUrl).Authority, StringComparison.OrdinalIgnoreCase)
+            ? PageKind(url) : "external";
+
     private async Task<bool> IssueReadyAsync(string initialUrl)
     {
         if (Page.IsClosed) throw new InvalidOperationException("A janela do Edge foi fechada. Retome a execução para continuar.");
@@ -160,7 +217,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     public async Task PrepareCreateAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (Page.Url != settings.PortalUrl) await NavigateAsync(settings.PortalUrl);
+        if (Page.Url != settings.PortalUrl) await OpenAsync(settings.PortalUrl, PortalReadyAsync, cancellationToken);
         // Inclui os envios de anexos, que continuam depois que o nome do arquivo aparece na página.
         using var mutations = new MutationTracker(Page, settings.JiraUrl);
         var profile = run.Profile;
@@ -266,14 +323,28 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         throw error;
     }
 
+    // A leitura não grava nada no Jira. Uma falha passageira (página que não carregou, navegação interrompida,
+    // limite de requisições do Jira) é repetida uma vez, depois de uma pausa, antes de parar a visita.
     public async Task<IssueSnapshot> ReadIssueAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
+    {
+        try { return await ReadIssueOnceAsync(run, floor, cancellationToken); }
+        catch (Exception ex) when ((ex is TimeoutException or PlaywrightException || ex.Data["DiagnosticCode"] is "STATUS_TIMEOUT") &&
+            !cancellationToken.IsCancellationRequested && page is { IsClosed: false })
+        {
+            diagnostics?.Event("issue.read_retry", "Leitura do chamado repetida após uma falha passageira.", DiagnosticLevel.Warning,
+                new() { ["exceptionType"] = ex.GetType().Name, ["pageKind"] = ObservedPageKind(Page.Url) });
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            return await ReadIssueOnceAsync(run, floor, cancellationToken);
+        }
+    }
+
+    private async Task<IssueSnapshot> ReadIssueOnceAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var key = floor.IssueKey ?? throw new InvalidOperationException("Chamado ainda não identificado.");
-        await NavigateAsync(IssueUrl(key));
         var title = settings.SelectorOverrides.TryGetValue("issue.title", out var titleSelector)
             ? Page.Locator(titleSelector) : Page.GetByRole(AriaRole.Heading, new() { Name = run.Profile.Title, Exact = true });
-        await title.First.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+        await OpenAsync(IssueUrl(key), () => title.First.IsVisibleAsync(), cancellationToken);
         if (DomControls.Normalize(await (await DomControls.UniqueAsync(title, "Título")).InnerTextAsync()) != DomControls.Normalize(run.Profile.Title))
             throw new InvalidOperationException("O título do chamado não corresponde à visita configurada.");
         var body = await Page.Locator("body").InnerTextAsync();
@@ -357,7 +428,9 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             }
             await Task.Delay(100, cancellationToken);
         } while (DateTimeOffset.UtcNow < deadline);
-        throw new InvalidOperationException("O controle de status do chamado não carregou no tempo esperado. Confira a página e retome pela aba Executar visita.");
+        var error = new InvalidOperationException("O controle de status do chamado não carregou no tempo esperado. Confira a página e retome pela aba Executar visita.");
+        error.Data["DiagnosticCode"] = "STATUS_TIMEOUT";
+        throw error;
     }
 
     private async Task<ILocator> StatusButtonLocatorAsync()
@@ -382,8 +455,18 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     private async Task<string> StatusAsync(CancellationToken cancellationToken = default) =>
         DomControls.Normalize(await (await StatusButtonAsync(cancellationToken)).InnerTextAsync());
 
+    // As ações partem da página que a leitura acabou de conferir. Se o Jira pediu login nesse intervalo,
+    // nada foi clicado ainda: a ação espera o login e reabre o chamado antes de começar.
+    private async Task EnsureIssuePageAsync(FloorRun floor, CancellationToken cancellationToken = default)
+    {
+        if (!NeedsLogin(Page.Url)) return;
+        var key = floor.IssueKey ?? throw new InvalidOperationException("Chamado ainda não identificado.");
+        await OpenAsync(IssueUrl(key), async () => await DomControls.IsUniqueVisibleAsync(await StatusButtonLocatorAsync()), cancellationToken);
+    }
+
     public async Task AssignAsync(VisitRun run, FloorRun floor)
     {
+        await EnsureIssuePageAsync(floor);
         using var mutations = new MutationTracker(Page, settings.JiraUrl);
         var begin = Stopwatch.GetTimestamp();
         await Ui.ClickAsync("issue.assignToMe", ["Assign to me", "Atribuir a mim"]);
@@ -433,6 +516,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
 
     public async Task StartAsync(VisitRun run, FloorRun floor)
     {
+        await EnsureIssuePageAsync(floor);
         var status = await StatusAsync();
         if (!SameText(status, Workflow.WaitingStatus))
             throw new InvalidOperationException($"{floor.IssueKey} está em “{status}”. O início de atendimento esperado é a partir de {DomControls.Normalize(Workflow.WaitingStatus)}.");
@@ -501,6 +585,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     public async Task PrepareCloseAsync(VisitRun run, FloorRun floor, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        await EnsureIssuePageAsync(floor, cancellationToken);
         if (!SameText(await StatusAsync(cancellationToken), Workflow.InProgressStatus))
             throw new InvalidOperationException($"{floor.IssueKey}: confira o início do atendimento antes do fechamento.");
         var closeTransition = DomControls.Normalize(Workflow.CloseTransition);
@@ -581,7 +666,8 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
             .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
         var begin = Stopwatch.GetTimestamp();
-        var limit = TimeSpan.FromSeconds(settings.TimeoutSeconds);
+        // Quando existe, o histórico aparece em poucos segundos; sem ele, cada chamado fechado esperaria o tempo inteiro.
+        var limit = TimeSpan.FromSeconds(Math.Min(settings.TimeoutSeconds, 30));
         var lastClick = 0L;
         var historyFound = false;
         var lastState = "";
@@ -724,14 +810,20 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         try
         {
             diagnostics?.Event("verification.source", "Origem da conferência do comentário público.", DiagnosticLevel.Debug, new() { ["source"] = "customer_portal" });
-            await NavigateAsync(target.AbsoluteUri);
-            await Page.GetByText(key, new() { Exact = true }).First.WaitForAsync(new() { State = WaitForSelectorState.Visible });
+            var portalKey = Page.GetByText(key, new() { Exact = true }).First;
+            await OpenAsync(target.AbsoluteUri, () => portalKey.IsVisibleAsync(), cancellationToken);
             // No portal do cliente, ler apenas comentários publicados; descrições e editores ficam excluídos.
             var bodies = Page.Locator(".ak-renderer-wrapper.is-comment .ak-renderer-document").Filter(new() { Visible = true });
             var deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
             do
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // Um login pedido no meio da conferência não conta como comentário ausente.
+                if (NeedsLogin(Page.Url))
+                {
+                    await OpenAsync(target.AbsoluteUri, () => portalKey.IsVisibleAsync(), cancellationToken);
+                    deadline = DateTimeOffset.UtcNow.AddSeconds(settings.TimeoutSeconds);
+                }
                 foreach (var body in await bodies.AllInnerTextsAsync())
                     if (DomControls.Normalize(body) == DomControls.Normalize(expected)) return true;
                 await Task.Delay(300, cancellationToken);
@@ -740,7 +832,13 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             await CaptureMomentAsync(run, "comentario-ausente", "Captura do comentário público não encontrado disponível.");
             return false;
         }
-        finally { if (!Page.IsClosed) await NavigateAsync(originalUrl); }
+        // A conferência já terminou; se a volta ao chamado falhar, a próxima leitura abre o chamado de novo.
+        finally
+        {
+            if (!Page.IsClosed)
+                try { await NavigateAsync(originalUrl); }
+                catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
+        }
     }
 
     public async Task CaptureFailureAsync(VisitRun run)
@@ -748,6 +846,13 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         // A falha pode chegar com a página recarregando; sem esperar, a captura mostraria só o esqueleto do Jira.
         if (page is not null && !page.IsClosed)
         {
+            // Mostra no diagnóstico se a falha aconteceu numa página de login, mesmo quando a captura não é permitida.
+            try
+            {
+                diagnostics?.Event("page.observed", "Página exibida no momento da falha.", details: new()
+                    { ["pageKind"] = ObservedPageKind(page.Url), ["passwordField"] = await page.Locator("input[type=password]").CountAsync() > 0 });
+            }
+            catch (PlaywrightException) { }
             try
             {
                 var begin = Stopwatch.GetTimestamp();

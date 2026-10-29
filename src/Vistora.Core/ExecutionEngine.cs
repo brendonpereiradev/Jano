@@ -114,6 +114,13 @@ public sealed class ExecutionEngine(IRunStore store, Func<IJiraAutomation> autom
             foreach (var floor in run.Floors)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // Um pavimento que esta visita fechou e conferiu não recebe mais nenhuma ação.
+                // Relê-lo na retomada só atrasaria a visita e poderia pará-la sem motivo.
+                if (floor.Stage == FloorStage.Closed && floor.PendingAction == PendingAction.None)
+                {
+                    current.Skip(floor, "closed_already_verified");
+                    continue;
+                }
                 var snapshot = await ReadAsync(browser, run, floor, cancellationToken);
                 if (snapshot.Closed)
                 {
@@ -137,10 +144,14 @@ public sealed class ExecutionEngine(IRunStore store, Func<IJiraAutomation> autom
                     await SaveAsync(run, $"Novo fechamento de {floor.IssueKey} autorizado após conferência no Jira.");
                     current.Confirm(floor, "close.retry_authorized");
                 }
+                // Cada leitura recarrega o chamado; sem ação entre elas, uma segunda leitura só aumenta
+                // o número de requisições, e o Jira responde com 429 quando elas se acumulam.
                 if (!snapshot.AssignedToCurrentUser)
+                {
                     await PerformAsync(run, floor, PendingAction.Assign, $"Atribuindo {floor.Name}", () => browser.AssignAsync(run, floor));
+                    snapshot = await ReadAsync(browser, run, floor, cancellationToken);
+                }
                 else current.Skip(floor, "assignment_verified");
-                snapshot = await ReadAsync(browser, run, floor, cancellationToken);
                 await current.StepAsync("assign.verify", floor, () =>
                 {
                     if (!snapshot.AssignedToCurrentUser)
@@ -161,11 +172,20 @@ public sealed class ExecutionEngine(IRunStore store, Func<IJiraAutomation> autom
             foreach (var floor in run.Floors.Where(f => f.Stage != FloorStage.Closed))
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                // A leitura da atribuição desta tentativa já conferiu o início; a leitura antes do fechamento confere de novo.
+                if (floor.Stage == FloorStage.Started)
+                {
+                    floor.Message = "Em atendimento";
+                    current.Skip(floor, "start_verified");
+                    continue;
+                }
                 var snapshot = await ReadAsync(browser, run, floor, cancellationToken);
                 if (!snapshot.Started)
+                {
                     await PerformAsync(run, floor, PendingAction.Start, $"Iniciando atendimento de {floor.Name}", () => browser.StartAsync(run, floor));
+                    snapshot = await ReadAsync(browser, run, floor, cancellationToken);
+                }
                 else current.Skip(floor, "start_verified");
-                snapshot = await ReadAsync(browser, run, floor, cancellationToken);
                 if (!snapshot.Started) throw new InvalidOperationException($"O início de atendimento de {floor.IssueKey} não foi confirmado.");
                 floor.Stage = FloorStage.Started;
                 floor.PendingAction = PendingAction.None;
