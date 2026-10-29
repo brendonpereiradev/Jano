@@ -368,15 +368,22 @@ try
     await diagnostics.ExportAsync(historyExport, historyProbe, includeScreenshots: true);
     using (var zip = System.IO.Compression.ZipFile.OpenRead(historyExport))
         Check(zip.Entries.Any(e => e.FullName.EndsWith("-historico-ausente.png", StringComparison.Ordinal)), "A captura da conferência ficou fora do pacote de diagnóstico.");
-    // Outra tentativa não enviou o formulário: sem Histórico, a resolução continua pedindo conferência.
+    // Sem fechamento pendente, nada prova que o formulário foi desta visita: sem Histórico, a resolução continua pedindo conferência.
     await using (var historyBrowser = new EdgeJiraAutomation(store))
     {
         await historyBrowser.ConnectAsync(historyProbe.Settings, _ => { }, default, historyProbe.Floors[0].IssueKey);
         var reread = await historyBrowser.ReadIssueAsync(historyProbe, historyProbe.Floors[0], default);
         Check(reread.Closed && !reread.ResolutionMatches && reread.PublicCommentMatches && reread.TeamMatches, "Uma releitura sem Histórico aceitou a resolução sem o formulário enviado.");
     }
+    // Visita parada em "Precisa de conferência" com o chamado já fechado: a retomada conclui sem reenviar o fechamento.
+    historyProbe.State = RunState.NeedsReconciliation;
+    historyProbe.Floors[0].Stage = FloorStage.Started; historyProbe.Floors[0].PendingAction = PendingAction.Close;
+    var closesBeforeHistoryResume = closeRequests;
+    await engine.ResumeAsync(historyProbe, _ => throw new Exception("Solicitou nova abertura."), default);
+    Check(historyProbe.State == RunState.Completed && historyProbe.Floors[0].Stage == FloorStage.Closed && closeRequests == closesBeforeHistoryResume,
+        "A retomada de um fechamento pendente já gravado no Jira não concluiu ou reenviou o fechamento.");
     hideHistory = false;
-    Console.WriteLine("PASS: sem Histórico na página, vale a resolução do formulário enviado e conferido na mesma tentativa; a captura do momento entra no pacote.");
+    Console.WriteLine("PASS: sem Histórico na página, vale a resolução do fechamento pendente conferido no formulário; a captura do momento entra no pacote.");
 
     missingTransition = true; transitionDelayMs = 0;
     var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());

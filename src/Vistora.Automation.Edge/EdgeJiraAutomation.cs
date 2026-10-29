@@ -715,10 +715,10 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
     }
 
     // Captura a página no momento em que a conferência encontra o problema, antes de navegar para outra página.
-    // A captura nunca altera o resultado da conferência.
+    // A captura nunca altera o resultado da conferência. Sem uma tentativa registrada, ela não entraria em nenhum pacote.
     private async Task CaptureMomentAsync(VisitRun run, string label, string message)
     {
-        if (!capturedMoments.Add(label)) return;
+        if (diagnostics is null || !capturedMoments.Add(label)) return;
         try { await CaptureAsync(run, label, message); }
         catch (Exception ex) when (ex is PlaywrightException or TimeoutException or IOException or UnauthorizedAccessException)
         { diagnostics?.Event("artifact.skipped", "Não foi possível capturar a página neste momento.", DiagnosticLevel.Warning); }
