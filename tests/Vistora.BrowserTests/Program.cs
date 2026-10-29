@@ -374,6 +374,11 @@ try
     await using (var historyBrowser = new EdgeJiraAutomation(store))
     {
         await historyBrowser.ConnectAsync(historyProbe.Settings, _ => { }, default, historyProbe.Floors[0].IssueKey);
+        // Um pavimento que esta visita já fechou e conferiu continua conferido na retomada.
+        var closedReread = await historyBrowser.ReadIssueAsync(historyProbe, historyProbe.Floors[0], default);
+        Check(closedReread.Closed && closedReread.ResolutionMatches && closedReread.PublicCommentMatches && closedReread.TeamMatches,
+            "A releitura sem Histórico recusou a resolução de um fechamento já conferido nesta visita.");
+        historyProbe.Floors[0].Stage = FloorStage.Started;
         var reread = await historyBrowser.ReadIssueAsync(historyProbe, historyProbe.Floors[0], default);
         Check(reread.Closed && !reread.ResolutionMatches && reread.PublicCommentMatches && reread.TeamMatches, "Uma releitura sem Histórico aceitou a resolução sem o formulário enviado.");
     }
@@ -384,12 +389,17 @@ try
     await engine.ResumeAsync(historyProbe, _ => throw new Exception("Solicitou nova abertura."), default);
     Check(historyProbe.State == RunState.Completed && historyProbe.Floors[0].Stage == FloorStage.Closed && closeRequests == closesBeforeHistoryResume,
         "A retomada de um fechamento pendente já gravado no Jira não concluiu ou reenviou o fechamento.");
+    // Retomar de novo relê o pavimento já fechado nesta visita; sem Histórico, ele continua conferido.
+    historyProbe.State = RunState.NeedsReconciliation;
+    await engine.ResumeAsync(historyProbe, _ => throw new Exception("Solicitou nova abertura."), default);
+    Check(historyProbe.State == RunState.Completed && historyProbe.Floors[0].Stage == FloorStage.Closed && closeRequests == closesBeforeHistoryResume,
+        "A retomada recusou um pavimento já fechado e conferido nesta visita: " + historyProbe.Message);
     hideHistory = false;
     Console.WriteLine("PASS: sem Histórico na página, vale a resolução do fechamento pendente conferido no formulário; a captura do momento entra no pacote.");
 
     // A resolução gravada é a da última atualização: o Histórico desta conferência não pode ter uma mais recente.
     var latestWasWrong = wrongLatestResolution; wrongLatestResolution = false;
-    foreach (var layout in new[] { "unstable", "menu" })
+    foreach (var layout in new[] { "unstable", "menu", "remount" })
     {
         historyLayout = layout;
         var layoutProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
@@ -402,7 +412,7 @@ try
             $"A resolução não foi conferida pelo Histórico em '{layout}'.");
     }
     historyLayout = "buttons"; wrongLatestResolution = latestWasWrong;
-    Console.WriteLine("PASS: Histórico remontado sem parar ou no menu \"Mostrar:\" confere a resolução sem esgotar o tempo.");
+    Console.WriteLine("PASS: Histórico remontado sem parar, no menu \"Mostrar:\" ou com a página voltando ao topo confere a resolução sem esgotar o tempo.");
 
     missingTransition = true; transitionDelayMs = 0;
     var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
@@ -694,10 +704,20 @@ static class Fixture
           feed.setAttribute('aria-expanded','true');const menu=document.getElementById('feed-menu');menu.innerHTML='<div role="menuitemradio">Comentários</div><div role="menuitemradio">Histórico</div>';
           menu.lastChild.onclick=()=>{menu.innerHTML='';feed.setAttribute('aria-expanded','false');feed.textContent='Histórico';showHistory()}}}
         else{
-          if(!hideHistory)document.getElementById('history-tab').onclick=showHistory;
-          document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
+          const bind=()=>{
+            if(!hideHistory)document.getElementById('history-tab').onclick=showHistory;
+            document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
+          };bind();
           // O Jira remonta a aba antes de ela ficar estável para o clique comum.
           if(historyLayout==='unstable')setInterval(()=>{const old=document.getElementById('history-tab'),copy=old.cloneNode(true);copy.onclick=old.onclick;old.replaceWith(copy)},10);
+          // O Jira só mostra a atividade rolada até o fim, remonta tudo com Comentários e volta a página para o topo.
+          if(historyLayout==='remount'){
+            const spacer=document.createElement('div');spacer.style.height='3000px';activity.before(spacer);
+            const markup=activity.innerHTML;
+            const reveal=()=>activity.style.visibility=window.scrollY+innerHeight>=document.documentElement.scrollHeight-20?'visible':'hidden';
+            addEventListener('scroll',reveal);reveal();
+            setInterval(()=>{activity.innerHTML=markup;bind();scrollTo(0,0);reveal()},2500);
+          }
         }
       },900);
       document.getElementById('assign')?.addEventListener('click',async e=>{

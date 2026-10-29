@@ -302,7 +302,7 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
             teamMatches = string.Equals(DomControls.Normalize(await Ui.ValueAsync("issue.team", Labels("team"))),
                 DomControls.Normalize(run.Settings.ClosingTeam), StringComparison.OrdinalIgnoreCase);
             if (!teamMatches) await CaptureMomentAsync(run, "equipe-divergente", "Captura da equipe divergente disponível.");
-            resolutionMatches = await ResolutionMatchesAsync(run, floor.Floor.Resolution) ?? ResolutionSentByPendingClose(floor);
+            resolutionMatches = await ResolutionMatchesAsync(run, floor.Floor.Resolution) ?? ResolutionVerifiedByVisit(floor);
             publicMatches = await PublicCommentMatchesAsync(run, key, floor.Floor.Resolution, cancellationToken);
         }
         cancellationToken.ThrowIfCancellationRequested();
@@ -576,73 +576,94 @@ public sealed class EdgeJiraAutomation(LocalStore store) : IJiraAutomation
         // O histórico registra separadamente os valores anteriores e os novos valores salvos.
         // A seção de atividade carrega depois dos campos, e o Jira mostra o histórico como aba, como botão
         // ou como opção do menu "Mostrar:", conforme a largura disponível.
-        var historyName = new Regex(@"^(History|Histórico)$", RegexOptions.IgnoreCase);
-        var tab = Page.GetByRole(AriaRole.Tab, new() { NameRegex = historyName })
-            .Or(Page.GetByRole(AriaRole.Button, new() { NameRegex = historyName }))
-            .Or(Page.GetByRole(AriaRole.Radio, new() { NameRegex = historyName }))
-            .Or(Page.GetByRole(AriaRole.Menuitemradio, new() { NameRegex = historyName }))
-            .Or(Page.GetByRole(AriaRole.Menuitem, new() { NameRegex = historyName }))
-            .Or(Page.GetByRole(AriaRole.Option, new() { NameRegex = historyName })).Filter(new() { Visible = true });
-        var feedMenu = Page.GetByText(new Regex(@"^(Mostrar|Show):?$", RegexOptions.IgnoreCase)).Locator("xpath=following::button[1]").Filter(new() { Visible = true });
+        // O Jira também remonta a atividade e volta a página para o topo enquanto carrega. Por isso a abertura é
+        // repetida até o histórico aparecer, e cada rodada rola, procura e clica numa única chamada à página.
+        var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
+            .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
         var begin = Stopwatch.GetTimestamp();
         var limit = TimeSpan.FromSeconds(settings.TimeoutSeconds);
-        while (await tab.CountAsync() == 0 && Stopwatch.GetElapsedTime(begin) < limit)
+        var lastClick = 0L;
+        var historyFound = false;
+        var lastState = "";
+        string? savedValue = null;
+        while (true)
         {
-            if (await DomControls.IsUniqueVisibleAsync(feedMenu) && await feedMenu.GetAttributeAsync("aria-expanded") != "true")
+            if (await updates.CountAsync() > 0)
             {
-                await ClickRemountingAsync(feedMenu, begin, limit);
-                await Task.Delay(300);
-                continue;
+                try { savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''", null, new() { Timeout = 2000 }); break; }
+                catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
             }
-            // O Jira só monta a atividade quando ela aparece na tela: rola até o fim de cada área com rolagem.
-            await Page.EvaluateAsync("() => { for (const e of [document.scrollingElement, ...document.querySelectorAll('*')]) if (e && e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = e.scrollHeight; window.scrollTo(0, document.body.scrollHeight); }");
+            if (Stopwatch.GetElapsedTime(begin) >= limit) break;
+            // Depois de um clique, o histórico tem alguns segundos para carregar antes de um novo clique.
+            var mayClick = lastClick == 0 || Stopwatch.GetElapsedTime(lastClick) > TimeSpan.FromSeconds(3);
+            try { lastState = await Page.EvaluateAsync<string>(OpenHistoryScript, mayClick); }
+            catch (PlaywrightException) { lastState = "navigating"; }
+            if (lastState == "clicked") lastClick = Stopwatch.GetTimestamp();
+            historyFound |= lastState is "clicked" or "selected";
             await Task.Delay(500);
         }
-        var tabCount = await tab.CountAsync();
-        if (tabCount != 1 || !await ClickRemountingAsync(tab, begin, limit))
+        if (savedValue is null && !historyFound)
         {
             diagnostics?.Event("verification.unavailable", "Histórico do chamado não encontrado para conferir a resolução.", DiagnosticLevel.Warning,
-                new() { ["controlKey"] = "issue.history", ["count"] = tabCount }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
+                new() { ["controlKey"] = "issue.history", ["state"] = lastState }, durationMs: Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
             await CaptureMomentAsync(run, "historico-ausente", "Captura do chamado sem Histórico disponível.");
             return null;
         }
         diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "issue_history" });
-        var updates = Page.Locator("[data-testid='issue-history.ui.history-items.generic-history-item.history-item']")
-            .Filter(new() { Has = Page.GetByText(DomControls.LabelPattern(Labels("resolution")[0])), Visible = true });
-        try { await updates.First.WaitForAsync(new() { State = WaitForSelectorState.Visible }); }
-        catch (TimeoutException)
+        if (savedValue is null)
         {
             diagnostics?.Event("verification.unavailable", "Nenhuma alteração da resolução aparece no histórico.", DiagnosticLevel.Warning,
                 new() { ["controlKey"] = "issue.history" });
             await CaptureMomentAsync(run, "historico-sem-resolucao", "Captura do Histórico sem a resolução disponível.");
             return false;
         }
-        var savedValue = await updates.First.EvaluateAsync<string>("e => e.lastElementChild?.lastElementChild?.lastElementChild?.innerText || ''");
         // O histórico mostra a atualização mais recente primeiro. Nunca aceitar um valor antigo.
         var matches = DomControls.Normalize(savedValue) == DomControls.Normalize(expected);
         if (!matches) await CaptureMomentAsync(run, "resolucao-divergente", "Captura da resolução divergente disponível.");
         return matches;
     }
 
-    // Perto da largura em que troca as abas da atividade pelo menu "Mostrar:", o Jira remonta os controles sem parar
-    // e o clique comum espera para sempre um elemento estável. O evento disparado no elemento não depende disso.
-    private static async Task<bool> ClickRemountingAsync(ILocator control, long begin, TimeSpan limit)
-    {
-        while (Stopwatch.GetElapsedTime(begin) < limit)
-        {
-            try { await control.ClickAsync(new() { Timeout = 3000 }); return true; }
-            catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
-            try { await control.DispatchEventAsync("click", null, new() { Timeout = 3000 }); return true; }
-            catch (Exception ex) when (ex is TimeoutException or PlaywrightException) { }
+    // Rola cada área até o fim, porque o Jira só monta a atividade quando ela aparece na tela, e abre o histórico.
+    // O clique vai direto no elemento: o Jira remonta os controles antes de ficarem estáveis para o clique comum.
+    // Gatilhos de menu ficam de fora, porque o "Mostrar:" exibe o nome da opção escolhida.
+    // Resultados: selected, clicked, menu (abriu o "Mostrar:"), ambiguous, waiting (aguardando o clique) ou missing.
+    private const string OpenHistoryScript = """
+        mayClick => {
+          for (const e of [document.scrollingElement, ...document.querySelectorAll('*')])
+            if (e && e.scrollHeight > e.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(e).overflowY)) e.scrollTop = e.scrollHeight;
+          window.scrollTo(0, document.body.scrollHeight);
+          const visible = e => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden';
+          const name = e => (e.getAttribute('aria-label') || e.innerText || '').trim();
+          const controls = [...document.querySelectorAll('button,[role=tab],[role=button],[role=radio],[role=menuitemradio],[role=menuitem],[role=option]')]
+            .filter(e => visible(e) && /^(History|Histórico)$/i.test(name(e)) && !e.hasAttribute('aria-haspopup') && !e.hasAttribute('aria-expanded'));
+          if (controls.length > 1) return 'ambiguous';
+          if (controls.length === 1) {
+            const control = controls[0];
+            if (control.getAttribute('aria-selected') === 'true' || control.getAttribute('aria-checked') === 'true') return 'selected';
+            if (!mayClick) return 'waiting';
+            control.click();
+            return 'clicked';
+          }
+          const label = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && visible(e) && /^(Mostrar|Show):?$/i.test(e.innerText.trim()));
+          const menu = label && document.evaluate('following::button[1]', label, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+          if (!menu || !visible(menu) || menu.getAttribute('aria-expanded') === 'true') return 'missing';
+          if (!mayClick) return 'waiting';
+          menu.click();
+          return 'menu';
         }
-        return false;
-    }
+        """;
 
     // Sem o Histórico na página, vale o fechamento pendente desta visita: a pendência só é salva depois que o formulário
     // fica pronto com esta resolução conferida, e o Jira grava os campos da transição junto com o novo status.
     // O status fechado, o comentário público e a equipe continuam conferidos na página.
-    private bool ResolutionSentByPendingClose(FloorRun floor)
+    // Um pavimento que esta visita já marcou como fechado teve a resolução conferida antes; a retomada não a recusa.
+    private bool ResolutionVerifiedByVisit(FloorRun floor)
     {
+        if (floor.Stage == FloorStage.Closed)
+        {
+            diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "close_verified" });
+            return true;
+        }
         if (floor.PendingAction != PendingAction.Close) return false;
         diagnostics?.Event("verification.source", "Origem da conferência da resolução.", DiagnosticLevel.Debug, new() { ["source"] = "transition_form" });
         return true;
