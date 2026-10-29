@@ -140,6 +140,7 @@ var startMode = "unrelated";
 var rejectStart = false;
 var disabledSubmit = false;
 var hideHistory = false;
+var historyLayout = "buttons";
 AppSettings ExampleSettings() => Fixture.ExampleSettings();
 JiraWorkflow ExampleWorkflow() => ExampleSettings().Jira;
 var workflow = ExampleWorkflow();
@@ -169,7 +170,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
         return Results.Content("<html><body><label>Solicitante*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
-    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, hideHistory, workflow), "text/html; charset=utf-8");
+    return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, hideHistory, historyLayout, workflow), "text/html; charset=utf-8");
 });
 await app.StartAsync();
 var root = Path.Combine(Path.GetTempPath(), "VistoraBrowserTests", Guid.NewGuid().ToString("N"));
@@ -386,6 +387,23 @@ try
     hideHistory = false;
     Console.WriteLine("PASS: sem Histórico na página, vale a resolução do fechamento pendente conferido no formulário; a captura do momento entra no pacote.");
 
+    // A resolução gravada é a da última atualização: o Histórico desta conferência não pode ter uma mais recente.
+    var latestWasWrong = wrongLatestResolution; wrongLatestResolution = false;
+    foreach (var layout in new[] { "unstable", "menu" })
+    {
+        historyLayout = layout;
+        var layoutProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
+        layoutProbe.Settings = Serialization.Copy(run.Settings);
+        await engine.ExecuteAsync(layoutProbe, default);
+        Check(layoutProbe.State == RunState.Completed && layoutProbe.Floors[0].Stage == FloorStage.Closed, $"Fechamento com o Histórico em '{layout}' não foi concluído: " + layoutProbe.Message);
+        var layoutEvents = (await Task.WhenAll(Directory.EnumerateFiles(store.DiagnosticsDirectory(layoutProbe.Id), "events.jsonl", SearchOption.AllDirectories).Select(path => File.ReadAllLinesAsync(path))))
+            .SelectMany(lines => lines).Where(line => line.Length > 0).Select(line => JsonSerializer.Deserialize<DiagnosticEvent>(line, Serialization.Options)!).ToArray();
+        Check(layoutEvents.Any(e => e.EventName == "verification.source" && e.Details?.GetValueOrDefault("source")?.ToString() == "issue_history"),
+            $"A resolução não foi conferida pelo Histórico em '{layout}'.");
+    }
+    historyLayout = "buttons"; wrongLatestResolution = latestWasWrong;
+    Console.WriteLine("PASS: Histórico remontado sem parar ou no menu \"Mostrar:\" confere a resolução sem esgotar o tempo.");
+
     missingTransition = true; transitionDelayMs = 0;
     var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     transitionProbe.Settings = Serialization.Copy(run.Settings); transitionProbe.Settings.TimeoutSeconds = 1;
@@ -597,7 +615,7 @@ static class Fixture
     };
 
     public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode,
-        bool disabledSubmit, bool hideHistory, JiraWorkflow workflow) => """
+        bool disabledSubmit, bool hideHistory, string historyLayout, JiraWorkflow workflow) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
     <style>body{font:16px Segoe UI;padding:28px;background:#f6f8fb;color:#123743}main{max-width:850px;margin:auto;background:white;padding:24px}label{display:block;margin:14px 0 4px}input,textarea,select{font:inherit;padding:8px;width:90%}button{padding:10px;margin:8px}dl>div{display:flex;gap:24px;padding:8px;border-bottom:1px solid #ddd}dl>div>span:first-child{width:250px}dialog{width:650px}pre{white-space:pre-wrap}.options{background:#eef4f4}.options>div{padding:10px;cursor:pointer}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.combo-control{position:relative}.selected-overlay{position:absolute;inset:0;background:#eef4f4;z-index:2;padding:8px;width:90%}</style></head><body><main id="main"></main>
     <script>
@@ -610,6 +628,8 @@ static class Fixture
     const disabledSubmit = __DISABLED_SUBMIT__;
     // Jira sem Histórico na atividade e sem a resolução no layout principal.
     const hideHistory = __HIDE_HISTORY__;
+    // Histórico como botão, como botão remontado sem parar ou como opção do menu "Mostrar:".
+    const historyLayout = '__HISTORY_LAYOUT__';
     // Nomes do fluxo como o Jira exibe; um fluxo diferente do padrão também tira o data-testid do status.
     const workflow = __WORKFLOW__;
     const main=document.getElementById('main'); const issues=JSON.parse(localStorage.getItem('issues')||'{}');
@@ -662,13 +682,23 @@ static class Fixture
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')||workflow.plainStatus?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
       ${row('Ramal',issue.extension)}${row('Nome completo',issue.fullName)}${row('Unidade',issue.unit)}${row('Andar',issue.floor)}${row('Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
-      ${row('Equipe',issue.team)}${issueKey.endsWith('1')||hideHistory?'':row('Resolução do atendimento',issue.resolution)}</dl>
+      ${row('Equipe',issue.team)}${issueKey.endsWith('1')||hideHistory||historyLayout!=='buttons'?'':row('Resolução do atendimento',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
       // A atividade chega depois dos campos, com Comentários e Histórico como botões e não como abas.
-      if(issueKey.endsWith('1')||hideHistory)setTimeout(()=>{
-        const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button>${hideHistory?'':'<button id="history-tab">Histórico</button>'}<div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
-        if(!hideHistory)document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do atendimento',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do atendimento','None',issue.resolution):''}</div>`},400)};
-        document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
+      if(issueKey.endsWith('1')||hideHistory||historyLayout!=='buttons')setTimeout(()=>{
+        const activity=document.createElement('section');activity.innerHTML=historyLayout==='menu'
+          ?`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><span>Mostrar:</span><button id="feed" aria-expanded="false">Comentários</button><div id="feed-menu"></div><div role="tabpanel" id="activity-panel"></div>`
+          :`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button>${hideHistory?'':'<button id="history-tab">Histórico</button>'}<div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
+        const showHistory=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do atendimento',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do atendimento','None',issue.resolution):''}</div>`},400)};
+        if(historyLayout==='menu'){const feed=document.getElementById('feed');feed.onclick=()=>{
+          feed.setAttribute('aria-expanded','true');const menu=document.getElementById('feed-menu');menu.innerHTML='<div role="menuitemradio">Comentários</div><div role="menuitemradio">Histórico</div>';
+          menu.lastChild.onclick=()=>{menu.innerHTML='';feed.setAttribute('aria-expanded','false');feed.textContent='Histórico';showHistory()}}}
+        else{
+          if(!hideHistory)document.getElementById('history-tab').onclick=showHistory;
+          document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
+          // O Jira remonta a aba antes de ela ficar estável para o clique comum.
+          if(historyLayout==='unstable')setInterval(()=>{const old=document.getElementById('history-tab'),copy=old.cloneNode(true);copy.onclick=old.onclick;old.replaceWith(copy)},10);
+        }
       },900);
       document.getElementById('assign')?.addEventListener('click',async e=>{
         e.preventDefault();
@@ -729,7 +759,7 @@ static class Fixture
     """.Replace("__HIDE_PUBLIC__", hidePublic ? "true" : "false").Replace("__WRONG_LATEST_RESOLUTION__", wrongLatestResolution ? "true" : "false")
         .Replace("__TRANSITION_DELAY_MS__", transitionDelayMs.ToString(System.Globalization.CultureInfo.InvariantCulture)).Replace("__START_MODE__", startMode)
         .Replace("__MISSING_TRANSITION__", missingTransition ? "true" : "false").Replace("__AMBIGUOUS_TRANSITION__", ambiguousTransition ? "true" : "false")
-        .Replace("__DISABLED_SUBMIT__", disabledSubmit ? "true" : "false").Replace("__HIDE_HISTORY__", hideHistory ? "true" : "false").Replace("__WORKFLOW__", JsonSerializer.Serialize(new
+        .Replace("__DISABLED_SUBMIT__", disabledSubmit ? "true" : "false").Replace("__HIDE_HISTORY__", hideHistory ? "true" : "false").Replace("__HISTORY_LAYOUT__", historyLayout).Replace("__WORKFLOW__", JsonSerializer.Serialize(new
         {
             waiting = workflow.WaitingStatus.Trim(), inProgress = workflow.InProgressStatus.Trim(), closed = workflow.ClosedStatuses[0].Trim(),
             requestType = workflow.RequestType, start = workflow.StartTransition, close = workflow.CloseTransition,
