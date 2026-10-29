@@ -248,7 +248,7 @@
                   <StackPanel>
                     <Border Style="{StaticResource PanelHeader}"><TextBlock Text="Campos do formulário" Style="{StaticResource PanelTitle}"/></Border>
                     <StackPanel Margin="18,14,18,4">
-                      <TextBlock Text="Rótulo de cada campo como aparece no formulário e no chamado do Jira. Em branco, vale o rótulo padrão." Style="{StaticResource Hint}" Margin="0,0,0,12"/>
+                      <TextBlock Text="Rótulo de cada campo como aparece no formulário e no chamado do Jira. Quando o formulário e o chamado usam nomes diferentes, separe-os com | (por exemplo, Setor | Local). Em branco, vale o rótulo padrão." Style="{StaticResource Hint}" Margin="0,0,0,12"/>
                       <ItemsControl x:Name="FieldLabelsList" ItemsSource="{Binding FieldLabels}" Focusable="False">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>

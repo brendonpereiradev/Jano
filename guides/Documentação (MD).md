@@ -112,35 +112,39 @@ Numa instalação nova, estes campos vêm em branco, porque dependem do Jira de 
 
 | Campo | Exemplo |
 |---|---|
-| Equipe de fechamento | `CTS Field Services` |
-| Tipo de solicitação | `Visita Preventiva` |
-| Status aguardando atendimento | `Aguardando N2` |
-| Transição para iniciar o atendimento | `Iniciar Atendimento` |
-| Status em atendimento | `Em andamento N2` |
-| Transição para fechar | `Transitar para Fechado` |
+| Equipe de fechamento | `Equipe de Campo` |
+| Tipo de solicitação | `Visita preventiva` |
+| Status aguardando atendimento | `Aguardando atendimento` |
+| Transição para iniciar o atendimento | `Iniciar atendimento` |
+| Status em atendimento | `Em atendimento` |
+| Transição para fechar | `Fechar chamado` |
 | Status de chamado fechado | `Fechado`, `Closed`, `Concluído`, `Concluido` (um por linha; vem preenchido) |
 | Caminho do chamado | `/jira/servicedesk/projects/{project}/queues/issue/{key}` (vem preenchido, no formato do Jira Service Management) |
 
-Quem atualiza de uma versão até a 2.1.1 mantém os valores que já usava. Um campo que não estava gravado nas configurações recebe o valor de exemplo da tabela acima, que era o padrão dessas versões.
+Quem atualiza de uma versão até a 2.1.1 mantém os valores que já usava. Um campo que não estava gravado nas configurações recebe o valor que era o padrão dessas versões.
 
 ### Campos do formulário
 
-O Jano encontra os campos do formulário e do chamado pelo rótulo exibido no Jira. Os rótulos padrão são os de um formulário de exemplo. Confira cada um com o formulário da sua equipe e informe o nome que ele usa. Um campo em branco volta ao rótulo padrão.
+O Jano encontra os campos do formulário e do chamado pelo rótulo exibido no Jira. Os rótulos padrão são genéricos. Confira cada um com o formulário da sua equipe e informe o nome que ele usa. Um campo em branco volta ao rótulo padrão.
+
+Quando o formulário e a página do chamado mostram o mesmo campo com nomes diferentes, informe os dois separados por `|`, como `Setor | Local`.
+
+Quem atualiza de uma versão até a 2.2.1 mantém os rótulos que já usava. Um rótulo que não estava gravado nas configurações recebe o que era o padrão dessas versões e aparece preenchido em Configurações.
 
 | Campo | Rótulo padrão |
 |---|---|
-| Solicitante (em nome de) | `Abrir esta requisição em nome de` |
+| Solicitante (em nome de) | `Solicitante` |
 | Título | `Título` |
-| Ramal | `Ramal do solicitante` |
-| Nome completo | `Nome completo do usuário` |
-| Unidade | `Unidade - Usuário` |
+| Ramal | `Ramal` |
+| Nome completo | `Nome completo` |
+| Unidade | `Unidade` |
 | Pavimento | `Andar` |
-| Setor | `Setor` (aceita também `Setor/Local`) |
+| Setor | `Setor` |
 | Sala | `Sala` |
 | Telefone | `Telefone` |
-| Detalhes / justificativas | `Detalhes / justificativas` |
+| Descrição | `Descrição` |
 | Botão de envio do formulário | `Enviar` |
-| Resolução | `Resolução do chamado` |
+| Resolução | `Resolução do atendimento` |
 | Equipe de fechamento | `Equipe` |
 
 Os nomes que o próprio Jira exibe, como Responsável, Relator, Assign to me e Reply to customer, são reconhecidos em português e em inglês e não precisam de configuração.

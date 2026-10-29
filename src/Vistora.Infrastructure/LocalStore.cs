@@ -24,7 +24,7 @@ public sealed class LocalStore : IRunStore
     public async Task<AppSettings> LoadSettingsAsync() => AppSettings.Upgrade(
         await ReadAsync("settings.json", () => new AppSettings { DefaultsVersion = AppSettings.CurrentDefaultsVersion }));
     public Task SaveProfilesAsync(ProfileDocument value) { Diagnostics?.Register(value); return WriteAsync("profiles.json", value); }
-    // O que se grava já segue os padrões atuais: um valor em branco não volta a ser o da CTS.
+    // O que se grava já segue os padrões atuais: um valor em branco não volta a ser o da equipe original.
     public Task SaveSettingsAsync(AppSettings value) { value.DefaultsVersion = AppSettings.CurrentDefaultsVersion; return WriteAsync("settings.json", value); }
     public Task SaveRunAsync(VisitRun run) { Diagnostics?.Register(run); return WriteAsync(Path.Combine("runs", SafeId(run.Id) + ".json"), run); }
 

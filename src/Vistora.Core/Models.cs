@@ -61,9 +61,9 @@ public sealed class AppSettings
     public Dictionary<string, string> SelectorOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     // A equipe e os nomes do fluxo dependem do Jira de cada equipe e começam em branco.
     public string ClosingTeam { get; set; } = "";
-    // Ausente nos arquivos até a 2.1.1, quando os padrões eram os da equipe CTS. Ver Upgrade.
+    // Ausente nos arquivos até a 2.1.1; 2 até a 2.2.1, quando os rótulos padrão eram os da equipe original. Ver Upgrade.
     public int? DefaultsVersion { get; set; }
-    public const int CurrentDefaultsVersion = 2;
+    public const int CurrentDefaultsVersion = 3;
     public DiagnosticOptions Diagnostics { get; set; } = new();
     // Arquivos anteriores à 2.0.0 não têm o tema e abrem no claro.
     public AppTheme Theme { get; set; } = AppTheme.Light;
@@ -78,19 +78,23 @@ public sealed class AppSettings
         set => fieldLabels = new(value ?? [], StringComparer.OrdinalIgnoreCase);
     }
 
-    // Um arquivo gravado até a 2.1.1 só deixava de ter um valor quando ele era o padrão da época,
-    // o da equipe CTS. Esses valores voltam ao carregar, e quem já usava o Jano não percebe mudança.
+    // Um arquivo antigo só deixava de ter um valor quando ele era o padrão da época, o da equipe original.
+    // Esses valores voltam ao carregar, e quem já usava o Jano não percebe mudança.
     public static AppSettings Upgrade(AppSettings settings)
     {
-        if (settings.DefaultsVersion is not null) return settings;
-        // Até a 2.0.1 o padrão era "Field Services", que não existe no Jira.
-        if (string.Equals(Regex.Replace(settings.ClosingTeam, @"\s+", " ").Trim(), "Field Services", StringComparison.OrdinalIgnoreCase))
-            settings.ClosingTeam = "";
-        settings.WithLegacyTeamValues().DefaultsVersion = CurrentDefaultsVersion;
+        if (settings.DefaultsVersion >= CurrentDefaultsVersion) return settings;
+        if (settings.DefaultsVersion is null)
+        {
+            // Até a 2.0.1 o padrão era "Field Services", que não existe no Jira.
+            if (string.Equals(Regex.Replace(settings.ClosingTeam, @"\s+", " ").Trim(), "Field Services", StringComparison.OrdinalIgnoreCase))
+                settings.ClosingTeam = "";
+            settings.WithLegacyTeamValues();
+        }
+        settings.WithLegacyFieldLabels().DefaultsVersion = CurrentDefaultsVersion;
         return settings;
     }
 
-    // Preenche só o que está em branco com os valores da equipe CTS, padrões até a 2.1.1.
+    // Preenche só o que está em branco com os valores da equipe original, padrões até a 2.1.1.
     public AppSettings WithLegacyTeamValues()
     {
         static string Fill(string value, string legacy) => string.IsNullOrWhiteSpace(value) ? legacy : value;
@@ -102,40 +106,55 @@ public sealed class AppSettings
         Jira.CloseTransition = Fill(Jira.CloseTransition, "Transitar para Fechado");
         return this;
     }
+
+    // Rótulos do formulário da equipe original, padrões até a 2.2.1; os demais campos usavam os padrões atuais.
+    public AppSettings WithLegacyFieldLabels()
+    {
+        foreach (var (key, label) in new Dictionary<string, string>
+        {
+            ["reporter"] = "Abrir esta requisição em nome de", ["extension"] = "Ramal do solicitante",
+            ["fullName"] = "Nome completo do usuário", ["unit"] = "Unidade - Usuário", ["sector"] = "Setor | Setor/Local",
+            ["description"] = "Detalhes / justificativas", ["resolution"] = "Resolução do chamado"
+        })
+            if (string.IsNullOrWhiteSpace(FieldLabels.GetValueOrDefault(key))) FieldLabels[key] = label;
+        return this;
+    }
 }
 
-public sealed record JiraField(string Key, string Description, string[] Defaults);
+public sealed record JiraField(string Key, string Description, string Default);
 
 // Campos do formulário e do chamado que o Jano preenche e confere. Cada Jira nomeia os
-// campos do seu jeito; o rótulo configurado substitui os padrões, que aceitam variações.
+// campos do seu jeito; o rótulo configurado substitui o padrão.
 public static class JiraFields
 {
     public static readonly JiraField[] All =
     [
-        new("reporter", "Solicitante (em nome de)", ["Abrir esta requisição em nome de"]),
-        new("title", "Título", ["Título"]),
-        new("extension", "Ramal", ["Ramal do solicitante"]),
-        new("fullName", "Nome completo", ["Nome completo do usuário"]),
-        new("unit", "Unidade", ["Unidade - Usuário", "Unidade - usuário"]),
-        new("floor", "Pavimento", ["Andar"]),
-        new("sector", "Setor", ["Setor", "Setor/Local"]),
-        new("room", "Sala", ["Sala"]),
-        new("phone", "Telefone", ["Telefone"]),
-        new("description", "Detalhes / justificativas", ["Detalhes / justificativas", "Detalhes / justificativas:"]),
-        new("submit", "Botão de envio do formulário", ["Enviar"]),
-        new("resolution", "Resolução", ["Resolução do chamado"]),
-        new("team", "Equipe de fechamento", ["Equipe"])
+        new("reporter", "Solicitante (em nome de)", "Solicitante"),
+        new("title", "Título", "Título"),
+        new("extension", "Ramal", "Ramal"),
+        new("fullName", "Nome completo", "Nome completo"),
+        new("unit", "Unidade", "Unidade"),
+        new("floor", "Pavimento", "Andar"),
+        new("sector", "Setor", "Setor"),
+        new("room", "Sala", "Sala"),
+        new("phone", "Telefone", "Telefone"),
+        new("description", "Descrição", "Descrição"),
+        new("submit", "Botão de envio do formulário", "Enviar"),
+        new("resolution", "Resolução", "Resolução do atendimento"),
+        new("team", "Equipe de fechamento", "Equipe")
     ];
 
+    // Um rótulo pode listar alternativas separadas por "|", para quando o formulário e o chamado
+    // nomeiam o mesmo campo de jeitos diferentes. Em branco, vale o padrão.
     public static string[] Labels(AppSettings settings, string key)
     {
         var field = All.Single(f => f.Key == key);
         var configured = settings.FieldLabels.GetValueOrDefault(key);
-        if (string.IsNullOrWhiteSpace(configured)) return field.Defaults;
-        configured = Regex.Replace(configured, @"\s+", " ").Trim();
-        // O primeiro padrão mantém as variações aceitas; outro rótulo vale sozinho.
-        return string.Equals(configured, field.Defaults[0], StringComparison.OrdinalIgnoreCase) ? field.Defaults : [configured];
+        var labels = (configured ?? "").Split('|').Select(l => Regex.Replace(l, @"\s+", " ").Trim()).Where(l => l.Length > 0).ToArray();
+        return labels.Length > 0 ? labels : [field.Default];
     }
+
+    public static string Label(AppSettings settings, string key) => string.Join(" | ", Labels(settings, key));
 }
 
 // Nomes do fluxo do Jira da unidade, editáveis em Configurações.
@@ -207,7 +226,7 @@ public static class ProfileValidation
         foreach (var (label, value) in new[] { ("Nome do perfil", profile.Name), ("Solicitante", profile.ReporterName),
                      ("E-mail do solicitante", profile.ReporterEmail), ("Nome completo", profile.FullName),
                      ("Ramal", profile.Extension), ("Unidade", profile.Unit), ("Título", profile.Title),
-                     ("Detalhes / justificativas", profile.Description) })
+                     ("Descrição", profile.Description) })
             if (string.IsNullOrWhiteSpace(value)) errors.Add($"Preencha {label}.");
         if (!string.IsNullOrWhiteSpace(profile.ReporterEmail) &&
             !System.Net.Mail.MailAddress.TryCreate(profile.ReporterEmail, out _)) errors.Add("Informe um e-mail válido.");

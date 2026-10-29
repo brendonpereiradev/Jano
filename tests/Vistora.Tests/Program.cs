@@ -33,6 +33,7 @@ var tests = new (string Name, Func<Task> Test)[]
     ("Fluxo do Jira exige nomes preenchidos e caminho com o número do chamado", ValidateJiraWorkflow),
     ("Configurações antigas recebem o fluxo do Jira padrão", LegacyJiraWorkflow),
     ("Rótulos configurados substituem os campos padrão do Jira", ConfiguredFieldLabels),
+    ("Arquivos até a 2.2.1 mantêm os rótulos de antes", LegacyFieldLabels),
     ("Visita retomada usa as configurações atuais sem trocar a equipe já enviada", ResumeUsesCurrentSettings),
     ("Instalação nova começa sem os valores de uma equipe", GenericDefaults)
 }.Concat(DiagnosticTests.Cases).Concat(HistoryCleanupTests.Cases).ToArray();
@@ -215,9 +216,10 @@ static Task ValidateJiraWorkflow()
 static Task ConfiguredFieldLabels()
 {
     Check(JiraFields.Labels(new AppSettings(), "floor").SequenceEqual(["Andar"]), "O rótulo padrão do pavimento mudou.");
-    var settings = Serialization.Copy(new AppSettings { FieldLabels = new() { ["Floor"] = "  Piso  do   prédio ", ["unit"] = "unidade - usuário", ["room"] = " " } });
+    var settings = Serialization.Copy(new AppSettings { FieldLabels = new() { ["Floor"] = "  Piso  do   prédio ", ["sector"] = " Setor |  Local | ", ["room"] = " " } });
     Check(JiraFields.Labels(settings, "floor").SequenceEqual(["Piso do prédio"]), "O rótulo configurado não substituiu o padrão.");
-    Check(JiraFields.Labels(settings, "unit").Length == 2, "O rótulo igual ao padrão perdeu as variações aceitas.");
+    Check(JiraFields.Labels(settings, "sector").SequenceEqual(["Setor", "Local"]) && JiraFields.Label(settings, "sector") == "Setor | Local",
+        "As alternativas separadas por | não foram reconhecidas.");
     Check(JiraFields.Labels(settings, "room").SequenceEqual(["Sala"]), "Um rótulo em branco não voltou ao padrão.");
     Check(JiraFields.All.Select(f => f.Key).Distinct().Count() == JiraFields.All.Length, "Chaves de campo repetidas.");
     return Task.CompletedTask;
@@ -247,21 +249,22 @@ static async Task LegacyJiraWorkflow()
         "Arquivo sem a seção Jira não recebeu os valores de antes da 2.2.0.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": null }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
-    Check(loaded.Jira.WaitingStatus == "Aguardando N2" && ProfileValidation.ValidateSettings(loaded).Count == 0, "Seção Jira nula não recebeu os padrões.");
+    Check(loaded.Jira.WaitingStatus == new AppSettings().WithLegacyTeamValues().Jira.WaitingStatus && ProfileValidation.ValidateSettings(loaded).Count == 0, "Seção Jira nula não recebeu os padrões.");
     Check(loaded.Theme == AppTheme.Light, "Arquivo anterior à 2.0.0, sem o tema, não abriu no claro.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Theme": "Dark" }""");
     Check((await new LocalStore(store.Root).LoadSettingsAsync()).Theme == AppTheme.Dark, "O tema escuro salvo não foi lido.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "Jira": { "ClosedStatuses": ["Resolvido"], "IssuePath": "/browse/{key}" } }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
-    Check(loaded.Jira.ClosedStatuses.SequenceEqual(["Resolvido"]) && loaded.Jira.IssuePath == "/browse/{key}" && loaded.Jira.StartTransition == "Iniciar Atendimento",
+    Check(loaded.Jira.ClosedStatuses.SequenceEqual(["Resolvido"]) && loaded.Jira.IssuePath == "/browse/{key}" && loaded.Jira.StartTransition == new AppSettings().WithLegacyTeamValues().Jira.StartTransition,
         "Valores parciais da seção Jira foram misturados com a lista padrão ou perderam os demais padrões.");
-    Check(loaded.ClosingTeam == "CTS Field Services" && loaded.DefaultsVersion == AppSettings.CurrentDefaultsVersion, "Arquivo antigo sem a equipe não recebeu a da CTS.");
+    var legacyTeam = new AppSettings().WithLegacyTeamValues().ClosingTeam;
+    Check(loaded.ClosingTeam == legacyTeam && loaded.DefaultsVersion == AppSettings.CurrentDefaultsVersion, "Arquivo antigo sem a equipe não recebeu a da equipe original.");
     // Até a 2.0.1 o padrão "Field Services" não existia no Jira; arquivos dessa época passam a usar o nome correto.
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "ClosingTeam": " field   Services " }""");
-    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == "CTS Field Services", "O padrão antigo da equipe não foi migrado.");
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == legacyTeam, "O padrão antigo da equipe não foi migrado.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "ClosingTeam": "Outra Equipe", "Jira": { "WaitingStatus": "Aberto" } }""");
     loaded = await new LocalStore(store.Root).LoadSettingsAsync();
-    Check(loaded.ClosingTeam == "Outra Equipe" && loaded.Jira.WaitingStatus == "Aberto" && loaded.Jira.InProgressStatus == "Em andamento N2",
+    Check(loaded.ClosingTeam == "Outra Equipe" && loaded.Jira.WaitingStatus == "Aberto" && loaded.Jira.InProgressStatus == new AppSettings().WithLegacyTeamValues().Jira.InProgressStatus,
         "Valores gravados num arquivo antigo foram substituídos.");
 }
 static async Task GenericDefaults()
@@ -277,7 +280,22 @@ static async Task GenericDefaults()
     Check(reopened.DefaultsVersion == AppSettings.CurrentDefaultsVersion && reopened.ClosingTeam == "" && reopened.Jira.CloseTransition == "",
         "Configurações gravadas nesta versão receberam os valores antigos.");
     await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "DefaultsVersion": 2, "ClosingTeam": "Field Services" }""");
-    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == "Field Services", "Uma equipe chamada Field Services foi trocada pela da CTS.");
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).ClosingTeam == "Field Services", "Uma equipe chamada Field Services foi trocada pela da equipe original.");
+}
+static async Task LegacyFieldLabels()
+{
+    // Até a 2.2.1 os rótulos padrão eram os do formulário da equipe original; quem os usava continua com eles.
+    var store = new LocalStore(TestDirectory());
+    var legacyLabels = new AppSettings().WithLegacyFieldLabels().FieldLabels;
+    await File.WriteAllTextAsync(Path.Combine(store.Root, "settings.json"), """{ "SchemaVersion": 1, "DefaultsVersion": 2, "FieldLabels": { "unit": "Unidade do usuário" } }""");
+    var loaded = await new LocalStore(store.Root).LoadSettingsAsync();
+    Check(JiraFields.Labels(loaded, "unit").SequenceEqual(["Unidade do usuário"]) && JiraFields.Labels(loaded, "sector").Length == 2 &&
+        legacyLabels.Where(l => l.Key != "unit").All(l => loaded.FieldLabels[l.Key] == l.Value) && loaded.DefaultsVersion == AppSettings.CurrentDefaultsVersion,
+        "Um arquivo da 2.2.1 não manteve os rótulos de antes ou perdeu um rótulo configurado.");
+    Check(JiraFields.Labels(new AppSettings().WithLegacyTeamValues(), "reporter").SequenceEqual(["Solicitante"]), "Os valores do fluxo trouxeram os rótulos antigos.");
+    // Gravado por esta versão, um rótulo em branco continua no padrão genérico.
+    await store.SaveSettingsAsync(new AppSettings());
+    Check((await new LocalStore(store.Root).LoadSettingsAsync()).FieldLabels.Count == 0, "Configurações desta versão receberam os rótulos antigos.");
 }
 static string TestDirectory() => Path.Combine(Path.GetTempPath(), "VistoraTests", Guid.NewGuid().ToString("N"));
 static async Task LocalPersistence()
@@ -485,7 +503,7 @@ sealed class FakeJira : IJiraAutomation
     {
         current = floor.IssueKey; var issue = Issues[current!];
         if (issue.Floor.Id != floor.Floor.Id) throw new InvalidOperationException("Pavimento diferente.");
-        return Task.FromResult(new IssueSnapshot(current!, issue.Closed ? "Fechado" : issue.Started ? "Em andamento N2" : "Aguardando N2",
+        return Task.FromResult(new IssueSnapshot(current!, issue.Closed ? "Fechado" : issue.Started ? run.Settings.Jira.InProgressStatus : run.Settings.Jira.WaitingStatus,
             issue.Assigned, issue.Closed, issue.Started, !WrongResolution, issue.Comment == floor.Floor.Resolution, true));
     }
     public Task AssignAsync(VisitRun run, FloorRun floor) { CheckPage(floor); Issues[floor.IssueKey!].Assigned = true; Actions.Add("assign:" + current); return Task.CompletedTask; }

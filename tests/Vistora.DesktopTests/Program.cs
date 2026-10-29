@@ -487,7 +487,7 @@ internal static class Program
         var saved = Await(model.Store.LoadSettingsAsync());
         Check(model.SettingsStatus == "Configurações salvas." && model.SettingsStatusTone == StatusTone.Success && saved.JiraUrl == "https://jira.example.com",
             "O endereço corrigido não foi salvo sem a barra final.");
-        Check(model.ClosingTeam == "CTS Field Services" && model.ClosedStatuses.Contains("Fechado") && model.TimeoutSeconds == "60" &&
+        Check(model.ClosingTeam == new AppSettings().WithLegacyTeamValues().ClosingTeam && model.ClosedStatuses.Contains("Fechado") && model.TimeoutSeconds == "60" &&
             model.FieldLabels.Single(f => f.Field.Key == "floor").Label == "Andar", "As configurações não foram exibidas para edição.");
         model.TimeoutSeconds = "abc"; Await(model.SaveSettingsAsync());
         Check(model.SettingsStatusTone == StatusTone.Danger && model.SettingsStatus.Contains("10 e 180"), "Um tempo de espera inválido foi aceito.");

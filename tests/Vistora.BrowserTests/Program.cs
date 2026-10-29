@@ -36,10 +36,11 @@ if (args.Contains("--diagnose-saved-issue"))
     var page = browser.Pages[0];
     await page.GotoAsync(savedRun.Settings.JiraUrl.TrimEnd('/') + savedRun.Settings.Jira.IssuePath.Trim().Replace("{project}", key.Split('-')[0]).Replace("{key}", key), new() { WaitUntil = WaitUntilState.DOMContentLoaded });
     await page.GetByRole(AriaRole.Heading, new() { Name = savedRun.Profile.Title, Exact = true }).WaitForAsync();
-    Console.WriteLine("Controles com texto de status: " + await page.Locator("button,[role=button]").EvaluateAllAsync<string>("els=>JSON.stringify(els.filter(e=>/Aguardando N2|Em andamento N2|Fechado/i.test(e.innerText||'')).map(e=>({text:e.innerText,html:e.outerHTML})))"));
+    Console.WriteLine("Controles com texto de status: " + await page.Locator("button,[role=button]").EvaluateAllAsync<string>("(els,names)=>JSON.stringify(els.filter(e=>names.some(n=>(e.innerText||'').toLowerCase().includes(n.toLowerCase()))).map(e=>({text:e.innerText,html:e.outerHTML})))",
+        new[] { savedRun.Settings.Jira.WaitingStatus, savedRun.Settings.Jira.InProgressStatus }.Concat(savedRun.Settings.Jira.ClosedStatuses).ToArray()));
     await Task.Delay(1000);
     Console.WriteLine("Controles de leitura: " + await page.Locator("button,[role=button],[role=tab],h2,h3,label").EvaluateAllAsync<string>("els=>JSON.stringify(els.filter(e=>/Resolu|Equipe|Comment|Activity|Details|Show|More|Mostrar|Exibir|Expand|Recolher|View/i.test(e.innerText||e.getAttribute('aria-label')||'')).map(e=>({text:e.innerText.slice(0,200),label:e.getAttribute('aria-label'),testid:e.getAttribute('data-testid')})))"));
-    var resolutionLabels = page.GetByText(new System.Text.RegularExpressions.Regex("Resolução do chamado", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+    var resolutionLabels = page.GetByText(new System.Text.RegularExpressions.Regex(System.Text.RegularExpressions.Regex.Escape(JiraFields.Labels(savedRun.Settings, "resolution")[0]), System.Text.RegularExpressions.RegexOptions.IgnoreCase));
     Console.WriteLine("Rótulos de resolução: " + await resolutionLabels.EvaluateAllAsync<string>("els=>JSON.stringify(els.map(e=>({text:e.innerText,html:e.outerHTML,parent:e.parentElement.outerHTML.slice(0,2400)})))"));
     Console.WriteLine("Trechos de fechamento: " + await page.Locator("body").EvaluateAsync<string>("e=>JSON.stringify(e.innerText.split('\\n').map((line,i,lines)=>/Resolu|Equipe|Comment|Activity|Details|Show|More|Mostrar|Exibir|Expand|Recolher|View/i.test(line)?lines.slice(Math.max(0,i-1),i+4).join(' | '):'').filter(Boolean))"));
     foreach (var tabName in new[] { "Comments", "Comentários", "History", "Histórico" })
@@ -91,7 +92,7 @@ if (args.Contains("--probe-jira") || args.Contains("--diagnose-portal"))
     Console.WriteLine("Título: " + await page.TitleAsync());
     if (args.Contains("--diagnose-portal"))
     {
-        var marker = page.GetByText(new System.Text.RegularExpressions.Regex(@"^Abrir esta requisição em nome de\s*\*?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        var marker = page.GetByText(new System.Text.RegularExpressions.Regex($@"^{System.Text.RegularExpressions.Regex.Escape(JiraFields.Labels(savedSettings, "reporter")[0])}\s*\*?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
         Console.WriteLine("Marcadores encontrados pela versão anterior: " + await marker.CountAsync());
         for (var i = 0; i < await marker.CountAsync(); i++)
             Console.WriteLine("Marcador: " + await marker.Nth(i).EvaluateAsync<string>("e => JSON.stringify({tag:e.tagName,text:e.textContent,visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})"));
@@ -139,8 +140,8 @@ var startMode = "unrelated";
 var rejectStart = false;
 var disabledSubmit = false;
 var hideHistory = false;
-// Nomes do fluxo de exemplo, que os padrões deixam em branco.
-JiraWorkflow ExampleWorkflow() => new AppSettings().WithLegacyTeamValues().Jira;
+AppSettings ExampleSettings() => Fixture.ExampleSettings();
+JiraWorkflow ExampleWorkflow() => ExampleSettings().Jira;
 var workflow = ExampleWorkflow();
 app.MapPost("/fixture/start", async (HttpContext ctx) =>
 {
@@ -167,7 +168,7 @@ app.MapGet("/{**path}", (HttpContext ctx) =>
         return Results.Redirect("/servicedesk/customer/portal/1/user/login");
     if (passwordForm) return Results.Content("<html><body><input type='password' value='senha-sentinel'></body></html>", "text/html; charset=utf-8");
     if (loginMode || incompleteForm)
-        return Results.Content("<html><body><label>Abrir esta requisição em nome de*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
+        return Results.Content("<html><body><label>Solicitante*<span>(required)</span></label><p>Carregando</p></body></html>", "text/html; charset=utf-8");
     return Results.Content(Fixture.Html(hidePublic, wrongLatestResolution, transitionDelayMs, missingTransition, ambiguousTransition, startMode, disabledSubmit, hideHistory, workflow), "text/html; charset=utf-8");
 });
 await app.StartAsync();
@@ -181,13 +182,13 @@ var profile = new VisitProfile
     Extension = "123456", Unit = "Unidade A", Floors = [new() { Name = "Subsolo", Sector = "DML", Room = "Sala A", Resolution = "Visita Subsolo\n\nComputador: OK\nImpressora: OK" },
     new() { Name = "Térreo", Sector = "Consultórios", Room = "Sala B", Resolution = "Visita Térreo\n\nAvayas: OK" }]
 };
-var run = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
+var run = ProfileValidation.CreateRun(profile, ExampleSettings());
 run.Settings.JiraUrl = $"http://127.0.0.1:{port}";
 run.Settings.PortalUrl = run.Settings.JiraUrl + "/servicedesk/customer/portal/1/group/1/create/1";
 run.Settings.QueueUrl = run.Settings.JiraUrl + "/queue";
 run.Settings.TimeoutSeconds = 10;
-// Valor como pode ser digitado em Configurações; o Jira exibe "CTS Field Services".
-run.Settings.ClosingTeam = "  CTS   Field Services ";
+// Valor como pode ser digitado em Configurações; o Jira exibe "Equipe de Campo".
+run.Settings.ClosingTeam = "  Equipe   de Campo ";
 var engine = new ExecutionEngine(store, () => new EdgeJiraAutomation(store), diagnostics);
 engine.Progress += r => Console.WriteLine(r.Message);
 var failures = 0;
@@ -288,7 +289,7 @@ try
 
     var rejectedProfile = Serialization.Copy(profile); rejectedProfile.Floors = [rejectedProfile.Floors[0]];
     rejectAssignment = true;
-    var assignmentProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var assignmentProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     assignmentProbe.Settings = Serialization.Copy(run.Settings);
     assignmentProbe.TechnicianName = run.TechnicianName;
     await engine.ExecuteAsync(assignmentProbe, default);
@@ -316,7 +317,7 @@ try
     Console.WriteLine("PASS: rejeição e demora da atribuição preservam a pendência; retomada conclui o mesmo chamado.");
 
     rejectClosing = true;
-    var rejectedRun = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var rejectedRun = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     rejectedRun.Settings = Serialization.Copy(run.Settings); rejectedRun.Settings.TimeoutSeconds = 2;
     await engine.ExecuteAsync(rejectedRun, default);
     var rejectedKey = rejectedRun.Floors[0].IssueKey;
@@ -337,7 +338,7 @@ try
     Check(rejectedRun.State == RunState.Completed && rejectedRun.Floors[0].IssueKey == rejectedKey && retryConfirmations == 1 && closeRequests == requestsBeforeRetry + 1, rejectedRun.Message);
     Console.WriteLine("PASS: envio rejeitado preserva a pendência e a conferência explícita retoma o mesmo chamado.");
 
-    var teamProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var teamProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     teamProbe.Settings = Serialization.Copy(run.Settings); teamProbe.Settings.ClosingTeam = "Equipe Inexistente";
     var closesBeforeTeam = closeRequests;
     await engine.ExecuteAsync(teamProbe, default);
@@ -353,7 +354,7 @@ try
     Console.WriteLine("PASS: equipe ausente das opções do Jira interrompe o fechamento na hora, sem envio.");
 
     hideHistory = true;
-    var historyProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var historyProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     historyProbe.Settings = Serialization.Copy(run.Settings); historyProbe.Settings.TimeoutSeconds = 5;
     await engine.ExecuteAsync(historyProbe, default);
     Check(historyProbe.State == RunState.Completed && historyProbe.Floors[0].Stage == FloorStage.Closed, "Fechamento sem Histórico na página não foi concluído: " + historyProbe.Message);
@@ -386,7 +387,7 @@ try
     Console.WriteLine("PASS: sem Histórico na página, vale a resolução do fechamento pendente conferido no formulário; a captura do momento entra no pacote.");
 
     missingTransition = true; transitionDelayMs = 0;
-    var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var transitionProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     transitionProbe.Settings = Serialization.Copy(run.Settings); transitionProbe.Settings.TimeoutSeconds = 1;
     await engine.ExecuteAsync(transitionProbe, default);
     var transitionKey = transitionProbe.Floors[0].IssueKey;
@@ -431,7 +432,7 @@ try
     Console.WriteLine("PASS: seletor configurado aguarda o início; cancelar a espera do fechamento permite retomar o mesmo chamado.");
 
     rejectStart = true; transitionDelayMs = 0; startDelayMs = 1500;
-    var startProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var startProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     startProbe.Settings = Serialization.Copy(run.Settings); startProbe.Settings.TimeoutSeconds = 3;
     var startsBeforeReject = startRequests;
     await engine.ExecuteAsync(startProbe, default);
@@ -456,7 +457,7 @@ try
     Console.WriteLine("PASS: inicio rejeitado preserva pendencia; retomada aguarda confirmacao atrasada e habilitada sem duplicar chamado ou envio.");
 
     disabledSubmit = true;
-    var submitProbe = ProfileValidation.CreateRun(rejectedProfile, new AppSettings().WithLegacyTeamValues());
+    var submitProbe = ProfileValidation.CreateRun(rejectedProfile, ExampleSettings());
     submitProbe.Settings = Serialization.Copy(run.Settings); submitProbe.Settings.TimeoutSeconds = 1;
     var portalVisitsBeforeSubmitProbe = portalVisits;
     await engine.ExecuteAsync(submitProbe, default);
@@ -475,7 +476,7 @@ try
         StartTransition = "Começar visita", CloseTransition = "Resolver visita", IssuePath = "/browse/{key}"
     };
     wrongLatestResolution = false; transitionDelayMs = 0; startMode = "direct";
-    var workflowProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues());
+    var workflowProbe = ProfileValidation.CreateRun(profile, ExampleSettings());
     workflowProbe.Settings = Serialization.Copy(run.Settings); workflowProbe.Settings.Jira = Serialization.Copy(workflow);
     await engine.ExecuteAsync(workflowProbe, default);
     Check(workflowProbe.State == RunState.Completed && workflowProbe.Floors.All(f => f.Stage == FloorStage.Closed), "Fluxo com outros nomes não concluiu: " + workflowProbe.Message);
@@ -499,7 +500,7 @@ try
     Console.WriteLine("PASS: status, transições, tipo de solicitação e endereço do chamado vêm da seção Jira das configurações.");
 
     loginMode = true;
-    var loginProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); loginProbe.Settings = Serialization.Copy(run.Settings);
+    var loginProbe = ProfileValidation.CreateRun(profile, ExampleSettings()); loginProbe.Settings = Serialization.Copy(run.Settings);
     var loginDiagnostics = new DiagnosticAttempt(diagnostics, loginProbe, "access");
     using (var loginCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
     await using (var loginBrowser = new EdgeJiraAutomation(store))
@@ -523,7 +524,7 @@ try
     Console.WriteLine("PASS: a página de login continua aguardando autenticação.");
 
     loginMode = false; incompleteForm = true;
-    var formProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); formProbe.Settings = Serialization.Copy(run.Settings);
+    var formProbe = ProfileValidation.CreateRun(profile, ExampleSettings()); formProbe.Settings = Serialization.Copy(run.Settings);
     var formDiagnostics = new DiagnosticAttempt(diagnostics, formProbe, "access");
     await using (var formBrowser = new EdgeJiraAutomation(store))
     {
@@ -557,7 +558,7 @@ try
     Console.WriteLine("PASS: capturas preservadas e ZIP inclui versões do Edge por tentativa.");
     Console.WriteLine("PASS: formulário incompleto respeita o tempo da etapa e informa o problema correto.");
     incompleteForm = false;
-    var ambiguousProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); ambiguousProbe.Settings = Serialization.Copy(run.Settings);
+    var ambiguousProbe = ProfileValidation.CreateRun(profile, ExampleSettings()); ambiguousProbe.Settings = Serialization.Copy(run.Settings);
     ambiguousProbe.Settings.SelectorOverrides["portal.ready"] = "body";
     ambiguousProbe.Settings.SelectorOverrides["portal.title"] = "input";
     await engine.ExecuteAsync(ambiguousProbe, default);
@@ -566,7 +567,7 @@ try
             "Controle ambíguo não identificado antes do envio.");
     Console.WriteLine("PASS: controle ambíguo registra chave, contagem e causa sem enviar o formulário.");
     passwordForm = true;
-    var passwordProbe = ProfileValidation.CreateRun(profile, new AppSettings().WithLegacyTeamValues()); passwordProbe.Settings = Serialization.Copy(run.Settings);
+    var passwordProbe = ProfileValidation.CreateRun(profile, ExampleSettings()); passwordProbe.Settings = Serialization.Copy(run.Settings);
     passwordProbe.Settings.SelectorOverrides["portal.ready"] = "body";
     var passwordDiagnostics = new DiagnosticAttempt(diagnostics, passwordProbe, "access");
     await using (var passwordBrowser = new EdgeJiraAutomation(store))
@@ -587,6 +588,14 @@ static void Check(bool condition, string message) { if (!condition) throw new Ex
 
 static class Fixture
 {
+    // Equipe e fluxo de exemplo, que os padrões deixam em branco. O chamado chama o setor de "Local".
+    public static AppSettings ExampleSettings() => new()
+    {
+        ClosingTeam = "Equipe de Campo", FieldLabels = new() { ["sector"] = "Setor | Local" },
+        Jira = new() { WaitingStatus = "Aguardando atendimento", InProgressStatus = "Em atendimento", RequestType = "Visita preventiva",
+            StartTransition = "Iniciar atendimento", CloseTransition = "Fechar chamado" }
+    };
+
     public static string Html(bool hidePublic, bool wrongLatestResolution, int transitionDelayMs, bool missingTransition, bool ambiguousTransition, string startMode,
         bool disabledSubmit, bool hideHistory, JiraWorkflow workflow) => """
     <!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Jira — ambiente local de teste</title>
@@ -621,18 +630,18 @@ static class Fixture
       const issue=issues[issueKey];
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><section><h2>Descrição</h2><pre>${escape(issue.resolution)}</pre></section><div class="ak-renderer-wrapper is-comment"><div class="ak-renderer-document">${escape(hidePublic?'Outro comentário público':issue.comment)}</div></div>`;
     }else if(!issueKey){
-      main.innerHTML=`<h1>Visita Preventiva</h1><form id="form">${combo('reporter','Abrir esta requisição em nome de*','')}
+      main.innerHTML=`<h1>${escape(workflow.requestType)}</h1><form id="form">${combo('reporter','Solicitante*','')}
       <label for="title">Título*</label><input id="title" required>
-      <label for="extension">Ramal do solicitante*</label><input id="extension" required>
-      <label for="fullName">Nome completo do usuário*</label><input id="fullName" required>
-      ${combo('unit','Unidade - Usuário*','')}<label for="floor">Andar*</label><input id="floor" required>
+      <label for="extension">Ramal*</label><input id="extension" required>
+      <label for="fullName">Nome completo*</label><input id="fullName" required>
+      ${combo('unit','Unidade*','')}<label for="floor">Andar*</label><input id="floor" required>
       <label for="sector">Setor*</label><input id="sector" required><label for="room">Sala*</label><input id="room" required>
-      <label for="phone">Telefone</label><input id="phone"><label for="description-label-target">Detalhes / justificativas*</label><div id="description" role="textbox" aria-label="Detalhes / justificativas" contenteditable="true" style="min-height:80px;border:1px solid #ccc"></div>
+      <label for="phone">Telefone</label><input id="phone"><label for="description-label-target">Descrição*</label><div id="description" role="textbox" aria-label="Descrição" contenteditable="true" style="min-height:80px;border:1px solid #ccc"></div>
       <button type="submit" ${disabledSubmit?'disabled':''}>Enviar</button></form>`;
       for(const label of main.querySelectorAll('label')){
         if(label.textContent.endsWith('*')){const suffix=document.createElement('span');suffix.className='sr-only';suffix.textContent='(required)';label.appendChild(suffix)}
       }
-      const hidden=document.createElement('div');hidden.style.display='none';hidden.innerHTML='<label for="hidden-reporter">Abrir esta requisição em nome de*(required)</label><input id="hidden-reporter" role="combobox">';main.appendChild(hidden);
+      const hidden=document.createElement('div');hidden.style.display='none';hidden.innerHTML='<label for="hidden-reporter">Solicitante*(required)</label><input id="hidden-reporter" role="combobox">';main.appendChild(hidden);
       for(const [id,value] of [['reporter','Pessoa Teste pessoa@example.com'],['unit','Unidade A']]){
         const input=document.getElementById(id),options=document.getElementById(id+'options');
         const selected=document.getElementById('react-select-'+id+'-single-value');
@@ -651,14 +660,14 @@ static class Fixture
       // Perfil novo do Edge: o aviso de cookies da Atlassian fica aberto como diálogo.
       const cookies=document.createElement('div');cookies.setAttribute('role','dialog');cookies.setAttribute('aria-label','Aviso de cookies');cookies.innerHTML='<p>A Atlassian usa cookies.</p><button>Apenas o necessário</button><button>Aceitar tudo</button>';document.body.prepend(cookies);
       main.innerHTML=`<p>${issueKey}</p><h1>${escape(issue.title)}</h1><p>${escape(issue.reporter)}</p><button id="status" aria-label="${issue.status} - Change status" ${issueKey.endsWith('2')||workflow.plainStatus?'':'data-testid="issue-field-status.ui.status-view.status-button.status-button"'} hidden>${issue.status}</button><button aria-label="${issue.status} - Change status" data-testid="issue-field-status.ui.status-view.status-button.status-button" hidden>${issue.status}</button><div id="menu"></div><dl>
-      ${row('Ramal do solicitante',issue.extension)}${row('Nome completo do usuário',issue.fullName)}${row('Unidade - Usuário',issue.unit)}${row('Andar',issue.floor)}${row('Setor/Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
+      ${row('Ramal',issue.extension)}${row('Nome completo',issue.fullName)}${row('Unidade',issue.unit)}${row('Andar',issue.floor)}${row('Local',issue.sector)}${row('Sala',issue.room)}${row('Request Type',workflow.requestType)}${row('Reporter','Pessoa Teste')}
       <div><span>Assignee</span><span><span id="assignee-value">${escape(issue.assignee)}</span>${issue.assignee==='Unassigned'||issueKey.endsWith('2')?'<a id="assign" href="#" style="display:block">Assign to me</a>':''}</span></div>
-      ${row('Equipe',issue.team)}${issueKey.endsWith('1')||hideHistory?'':row('Resolução do chamado',issue.resolution)}</dl>
+      ${row('Equipe',issue.team)}${issueKey.endsWith('1')||hideHistory?'':row('Resolução do atendimento',issue.resolution)}</dl>
       <section id="comments">${issue.comment?`<article><b>${hidePublic?'Internal note':'Comentário público'}</b><pre>${escape(issue.comment)}</pre></article>`:''}</section>`;
       // A atividade chega depois dos campos, com Comentários e Histórico como botões e não como abas.
       if(issueKey.endsWith('1')||hideHistory)setTimeout(()=>{
         const activity=document.createElement('section');activity.innerHTML=`<a href="/servicedesk/customer/portal/1/${issueKey}" target="_blank">View request in portal</a><button id="comments-tab">Comentários</button>${hideHistory?'':'<button id="history-tab">Histórico</button>'}<div role="tabpanel" id="activity-panel"></div>`;main.appendChild(activity);
-        if(!hideHistory)document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do chamado',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do chamado','None',issue.resolution):''}</div>`},400)};
+        if(!hideHistory)document.getElementById('history-tab').onclick=()=>{const panel=document.getElementById('activity-panel');panel.innerHTML='<p>Carregando</p>';setTimeout(()=>{panel.innerHTML=`<div data-testid="issue-history.ui.feed-container">${historyItem('Resolution','None','Concluída')}${historyItem('Resolução do atendimento',wrongLatestResolution?issue.resolution:'None',wrongLatestResolution?'Resolução modificada':issue.resolution)}${wrongLatestResolution?historyItem('Resolução do atendimento','None',issue.resolution):''}</div>`},400)};
         document.getElementById('comments-tab').onclick=()=>document.getElementById('activity-panel').innerHTML='';
       },900);
       document.getElementById('assign')?.addEventListener('click',async e=>{
@@ -703,7 +712,7 @@ static class Fixture
           // O Jira antecipa o status e só depois carrega o formulário da transição.
           menu.innerHTML='';document.getElementById('status').textContent=workflow.closed;
           setTimeout(()=>{
-          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do chamado</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>CTS Field Services</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
+          const dialog=document.createElement('dialog');dialog.setAttribute('role','dialog');dialog.innerHTML=`<h2>${escape(workflow.close)}</h2><label for="resolution">Resolução do atendimento</label><textarea id="resolution"></textarea><button id="reply" type="button">Reply to customer</button><label for="public">Comentário público</label><textarea id="public"></textarea><label for="team">Equipe</label><select id="team"><option>Selecione</option><option>Equipe de Campo</option></select><button id="confirm">${escape(workflow.close)}</button>`;document.body.appendChild(dialog);dialog.showModal();
           document.getElementById('reply').onclick=()=>dialog.dataset.public='true';
           for(const id of ['resolution','public'])delayedValidation(id);
           document.getElementById('confirm').onclick=async()=>{for(const id of ['resolution','public']){const input=document.getElementById(id);if(input.dataset.committed!==input.value)throw Error('Jira ainda não processou '+id)}if(dialog.dataset.public!=='true')throw Error('Comentário não é público');const resolution=document.getElementById('resolution').value,comment=document.getElementById('public').value,team=document.getElementById('team').value;
@@ -724,6 +733,6 @@ static class Fixture
         {
             waiting = workflow.WaitingStatus.Trim(), inProgress = workflow.InProgressStatus.Trim(), closed = workflow.ClosedStatuses[0].Trim(),
             requestType = workflow.RequestType, start = workflow.StartTransition, close = workflow.CloseTransition,
-            plainStatus = JsonSerializer.Serialize(workflow) != JsonSerializer.Serialize(new AppSettings().WithLegacyTeamValues().Jira)
+            plainStatus = JsonSerializer.Serialize(workflow) != JsonSerializer.Serialize(ExampleSettings().Jira)
         }));
 }

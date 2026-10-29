@@ -735,9 +735,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
         // Um número inválido fica fora do intervalo e a validação explica o limite.
         copy.TimeoutSeconds = int.TryParse(TimeoutSeconds.Trim(), out var timeout) ? timeout : 0;
         copy.LoginTimeoutMinutes = int.TryParse(LoginTimeoutMinutes.Trim(), out var login) ? login : 0;
-        // Só rótulos diferentes do padrão ficam no arquivo; o padrão mantém as variações aceitas.
+        // Só rótulos diferentes do padrão ficam no arquivo.
         copy.FieldLabels = FieldLabels.Where(f => !string.IsNullOrWhiteSpace(f.Label) &&
-                !string.Equals(f.Label.Trim(), f.Field.Defaults[0], StringComparison.OrdinalIgnoreCase))
+                !string.Equals(f.Label.Trim(), f.Field.Default, StringComparison.OrdinalIgnoreCase))
             .ToDictionary(f => f.Field.Key, f => f.Label.Trim());
         copy.Diagnostics ??= new DiagnosticOptions();
         var errors = ProfileValidation.ValidateSettings(copy);
@@ -759,7 +759,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ClosedStatuses = string.Join(Environment.NewLine, workflow.ClosedStatuses);
         StartTransition = workflow.StartTransition; CloseTransition = workflow.CloseTransition; IssuePath = workflow.IssuePath;
         TimeoutSeconds = settings.TimeoutSeconds.ToString(); LoginTimeoutMinutes = settings.LoginTimeoutMinutes.ToString();
-        foreach (var item in FieldLabels) item.Label = JiraFields.Labels(settings, item.Field.Key)[0];
+        foreach (var item in FieldLabels) item.Label = JiraFields.Label(settings, item.Field.Key);
         SettingsStatus = "";
     }
 

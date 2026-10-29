@@ -21,17 +21,17 @@
               <TextBlock Text="Solicitante" Style="{StaticResource Section}" Margin="0,10,0,6"/>
               <TextBlock Text="Nome do solicitante no Jira" Style="{StaticResource Label}"/><TextBox Text="{Binding ReporterName, UpdateSourceTrigger=PropertyChanged}"/>
               <TextBlock Text="E-mail do solicitante no Jira" Style="{StaticResource Label}"/><TextBox Text="{Binding ReporterEmail, UpdateSourceTrigger=PropertyChanged}"/>
-              <TextBlock Text="Nome completo do usuário" Style="{StaticResource Label}"/><TextBox Text="{Binding FullName, UpdateSourceTrigger=PropertyChanged}"/>
+              <TextBlock Text="Nome completo" Style="{StaticResource Label}"/><TextBox Text="{Binding FullName, UpdateSourceTrigger=PropertyChanged}"/>
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <StackPanel><TextBlock Text="Ramal do solicitante" Style="{StaticResource Label}"/><TextBox Text="{Binding Extension, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
+                <StackPanel><TextBlock Text="Ramal" Style="{StaticResource Label}"/><TextBox Text="{Binding Extension, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
                 <StackPanel Grid.Column="2"><TextBlock Text="Telefone (opcional)" Style="{StaticResource Label}"/><TextBox Text="{Binding Phone, UpdateSourceTrigger=PropertyChanged}"/></StackPanel>
               </Grid>
             </StackPanel>
             <StackPanel Grid.Column="2">
               <TextBlock Text="Chamado" Style="{StaticResource Section}"/>
               <TextBlock Text="Título" Style="{StaticResource Label}"/><TextBox Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"/>
-              <TextBlock Text="Detalhes / justificativas" Style="{StaticResource Label}"/><TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="120" VerticalContentAlignment="Top"/>
+              <TextBlock Text="Descrição" Style="{StaticResource Label}"/><TextBox Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="120" VerticalContentAlignment="Top"/>
               <TextBlock Text="Anexos (opcional)" Style="{StaticResource Label}"/>
               <ListBox x:Name="AttachmentsList" Height="120" SelectionMode="Extended">
                 <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource FileName}}" ToolTip="{Binding}" TextTrimming="CharacterEllipsis"/></DataTemplate></ListBox.ItemTemplate>
