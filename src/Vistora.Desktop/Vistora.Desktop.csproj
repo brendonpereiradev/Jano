@@ -7,7 +7,7 @@
     <AssemblyName>Jano</AssemblyName>
     <Product>Jano</Product>
     <AssemblyTitle>Jano</AssemblyTitle>
-    <Version>2.4.2</Version>
+    <Version>2.4.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets/Branding/jano-icon.ico</ApplicationIcon>
   </PropertyGroup>
