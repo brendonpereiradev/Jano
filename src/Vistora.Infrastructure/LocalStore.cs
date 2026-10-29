@@ -28,6 +28,35 @@ public sealed class LocalStore : IRunStore
     public Task SaveSettingsAsync(AppSettings value) { value.DefaultsVersion = AppSettings.CurrentDefaultsVersion; return WriteAsync("settings.json", value); }
     public Task SaveRunAsync(VisitRun run) { Diagnostics?.Register(run); return WriteAsync(Path.Combine("runs", SafeId(run.Id) + ".json"), run); }
 
+    // Arquivo para levar as configurações a outro computador, no mesmo formato de settings.json.
+    public async Task ExportSettingsAsync(string destination, AppSettings value)
+    {
+        var target = Path.GetFullPath(destination);
+        // Gravar sobre os próprios dados pularia a cópia de segurança de WriteAsync.
+        if (target.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(Root)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Escolha uma pasta fora dos dados do Jano para salvar as configurações.");
+        value.DefaultsVersion = AppSettings.CurrentDefaultsVersion;
+        await File.WriteAllTextAsync(target, JsonSerializer.Serialize(value, Serialization.Options), Encoding.UTF8);
+    }
+
+    public static async Task<AppSettings> ReadSettingsFileAsync(string source)
+    {
+        try
+        {
+            var json = await File.ReadAllTextAsync(source, Encoding.UTF8);
+            using (var doc = JsonDocument.Parse(json))
+            {
+                // Perfis e visitas também têm SchemaVersion; só um arquivo de configurações tem o endereço do Jira.
+                if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty("JiraUrl", out _))
+                    throw new InvalidDataException("O arquivo escolhido não contém configurações do Jano.");
+                if (!doc.RootElement.TryGetProperty("SchemaVersion", out var version) || version.ValueKind != JsonValueKind.Number || version.GetInt32() != 1)
+                    throw new InvalidDataException("Versão de configurações incompatível. Use a versão apropriada do aplicativo.");
+            }
+            return AppSettings.Upgrade(JsonSerializer.Deserialize<AppSettings>(json, Serialization.Options) ?? throw new JsonException("Arquivo vazio."));
+        }
+        catch (JsonException ex) { throw new InvalidDataException("O arquivo escolhido não contém configurações do Jano.", ex); }
+    }
+
     public async Task ClearHistoryAsync()
     {
         await gate.WaitAsync();

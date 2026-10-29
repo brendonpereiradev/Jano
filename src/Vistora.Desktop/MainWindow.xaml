@@ -284,6 +284,8 @@
               <!-- No fim da página; o comando só fica disponível quando o SettingsPanel está liberado. -->
               <WrapPanel Margin="0,14,0,0">
                 <Button Content="Salvar configurações" Style="{StaticResource Primary}" local:ButtonIcon.Glyph="&#xE74E;" Command="{Binding SaveSettingsCommand}"/>
+                <Button x:Name="ExportSettingsButton" Content="Exportar" local:ButtonIcon.Glyph="&#xEDE1;" Command="{Binding ExportSettingsCommand}" ToolTip="Salvar as configurações num arquivo para usar em outro computador"/>
+                <Button x:Name="ImportSettingsButton" Content="Importar" local:ButtonIcon.Glyph="&#xE8B5;" Command="{Binding ImportSettingsCommand}" ToolTip="Substituir as configurações pelas de um arquivo exportado"/>
                 <TextBlock x:Name="SettingsStatus" Text="{Binding SettingsStatus}" local:Tone.Foreground="{Binding SettingsStatusTone}" VerticalAlignment="Center" FontWeight="SemiBold" Margin="8,0,0,0" TextWrapping="Wrap" MaxWidth="520"/>
               </WrapPanel>
             </StackPanel>

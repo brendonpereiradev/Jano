@@ -160,6 +160,10 @@ Os nomes que o próprio Jira exibe, como Responsável, Relator, Assign to me e R
 
 Ao retomar, a visita pendente usa as configurações salvas no momento. Assim, um valor corrigido em **Configurações** vale sem descartar a visita. A única exceção é a equipe de fechamento: depois que algum chamado da visita foi fechado, a visita mantém a equipe com que começou a fechar, e os chamados já fechados continuam sendo conferidos com ela.
 
+### Levar as configurações para outro computador
+
+No fim da página de **Configurações**, **Exportar** salva os valores da tela num arquivo `.json`, depois de conferi-los como em **Salvar configurações**. Em outro computador, **Importar** lê esse arquivo, pede confirmação, substitui as configurações e já as salva. O tema e as opções de diagnóstico continuam os do computador que importa. Perfis, visitas e a sessão do navegador não fazem parte do arquivo.
+
 ### Aparência
 
 O aplicativo tem tema claro e escuro. Marque **Tema escuro** no painel **Aparência** das **Configurações** ou use o botão de sol e lua na barra de título. A troca vale na hora, inclusive durante uma visita, e fica salva no computador, sem depender de **Salvar configurações**.
@@ -259,9 +263,8 @@ Chamados já fechados são conferidos sem novo envio de comentário. Se o status
 
 Em **Histórico**, selecione a visita e clique em **Exportar log**. O pacote inclui os registros disponíveis da execução e das retomadas, mesmo quando a visita terminou com sucesso.
 
-1. Informe uma identificação opcional para o teste.
-2. Marque **Incluir capturas de falha** se essas imagens forem necessárias à análise.
-3. Clique em **Escolher onde salvar** e salve o ZIP fora de `%LOCALAPPDATA%\Vistora`.
+1. Marque **Incluir capturas de falha** se essas imagens forem necessárias à análise.
+2. Clique em **Escolher onde salvar** e salve o ZIP fora de `%LOCALAPPDATA%\Vistora`.
 
 > **Privacidade.** As capturas ficam desmarcadas por padrão e podem conter os dados visíveis no chamado. Credenciais, sessão do navegador, anexos e perfis ou configurações completos ficam fora do pacote. Números dos chamados e identificadores técnicos são conservados.
 

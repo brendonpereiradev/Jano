@@ -43,6 +43,7 @@ internal static class Program
             ("Perfil incompleto mostra os erros no painel, sem abrir janela", IncompleteProfile),
             ("Verificar acesso informa sucesso, falha e interrupção no painel", AccessCheck),
             ("Configurações recusam endereço inválido e salvam o corrigido", SettingsValidation),
+            ("Configurações exportadas são importadas em outra instalação sem trocar o tema", SettingsExportImport),
             ("Tema escuro vale na hora, inclusive nas cores de estado, e fica salvo", ThemeSwitch),
             ("Confirmação de exclusão usa Cancelar como padrão", DangerConfirmDefaults),
             ("Barra de título traz a marca, o tema e o emblema ativo durante o trabalho", TitleBar),
@@ -507,6 +508,41 @@ internal static class Program
         Check(saved.FieldLabels.Count == 1 && saved.FieldLabels["floor"] == "Piso", "Só o rótulo alterado deveria ficar salvo.");
     }
 
+    private static void SettingsExportImport()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "VistoraDesktopTests", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "configuracoes.json");
+        using (var source = new Fixture([Profile()], [], preview: false))
+        {
+            var model = source.Model;
+            model.JiraUrl = "http://jira.example.com"; source.Dialogs.SettingsPath = file;
+            Await(model.ExportSettingsAsync());
+            Check(!File.Exists(file) && model.SettingsStatusTone == StatusTone.Danger, "Configurações inválidas foram exportadas.");
+            model.JiraUrl = "https://jira.example.com/"; model.TimeoutSeconds = "90"; model.ClosingTeam = "Equipe Exportada";
+            model.FieldLabels.Single(f => f.Field.Key == "floor").Label = "Piso";
+            Await(model.ExportSettingsAsync());
+            Check(File.Exists(file) && model.SettingsStatusTone == StatusTone.Success, "A exportação não gravou o arquivo.");
+            source.Dialogs.SettingsPath = Path.Combine(model.Store.Root, "copia.json");
+            Await(model.ExportSettingsAsync());
+            Check(!File.Exists(source.Dialogs.SettingsPath) && source.Dialogs.Messages.Count == 1, "A exportação gravou dentro dos dados do Jano.");
+        }
+        using var target = new Fixture([Profile()], [], preview: false); var imported = target.Model;
+        target.Dialogs.SettingsPath = file;
+        Await(imported.ImportSettingsAsync());
+        Check(imported.ClosingTeam != "Equipe Exportada" && !File.Exists(Path.Combine(imported.Store.Root, "settings.json")), "Importar sem confirmar substituiu as configurações.");
+        imported.IsDarkTheme = true; Await(imported.ThemeSaved);
+        target.Dialogs.ConfirmAnswer = true;
+        Await(imported.ImportSettingsAsync());
+        var saved = Await(imported.Store.LoadSettingsAsync());
+        Check(imported.ClosingTeam == "Equipe Exportada" && imported.TimeoutSeconds == "90" && saved.JiraUrl == "https://jira.example.com" &&
+            imported.FieldLabels.Single(f => f.Field.Key == "floor").Label == "Piso" && saved.ClosingTeam == "Equipe Exportada" &&
+            saved.Theme == AppTheme.Dark && imported.SettingsStatusTone == StatusTone.Success, "As configurações importadas não foram exibidas e salvas, ou o tema local mudou.");
+        var messages = target.Dialogs.Messages.Count;
+        File.WriteAllText(file, JsonSerializer.Serialize(new ProfileDocument(), Serialization.Options));
+        Await(imported.ImportSettingsAsync());
+        Check(target.Dialogs.Messages.Count == messages + 1 && imported.ClosingTeam == "Equipe Exportada", "Um arquivo de perfis foi aceito como configurações.");
+    }
+
     private static void ThemeSwitch()
     {
         // O App destes testes inicia como o aplicativo real e aplica o tema salvo neste computador; o teste parte do claro.
@@ -709,13 +745,17 @@ internal static class Program
         public Func<string, bool> ConfirmDangerAnswer { get; set; } = _ => throw new Exception("Confirmação inesperada.");
         public List<string> Messages { get; } = [];
         public bool ConfirmDanger(string title, string message, string confirmLabel) => ConfirmDangerAnswer(message);
-        public bool Confirm(string message) { Messages.Add(message); return false; }
+        public bool Confirm(string message) { Messages.Add(message); return ConfirmAnswer; }
         public VisitProfile? EditProfile(VisitProfile profile) => null;
         public string? AskIssueKey(string floorName) => null;
         public bool ConfirmCloseRetry(FloorRun floor, IssueSnapshot snapshot) => false;
         public void ShowWarning(string message) => Messages.Add(message);
         public void ShowError(string message) => Messages.Add(message);
         public Task ExportLogAsync(VisitRun? run) => Task.CompletedTask;
+        public bool ConfirmAnswer { get; set; }
+        public string? SettingsPath { get; set; }
+        public string? ChooseSettingsExportPath() => SettingsPath;
+        public string? ChooseSettingsImportPath() => SettingsPath;
     }
 
     // Só a verificação de acesso usa a automação nestes testes; o fluxo completo é coberto pelos testes do Edge.

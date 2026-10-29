@@ -129,7 +129,7 @@ public sealed partial class DiagnosticService
     }
 
     public async Task<DiagnosticExportResult> ExportAsync(string destination, VisitRun? run = null,
-        bool includeScreenshots = false, string? testLabel = null, string? applicationSessionId = null)
+        bool includeScreenshots = false, string? applicationSessionId = null)
     {
         if (run is not null) Register(run);
         var selectedSession = SafeId(applicationSessionId ?? SessionId);
@@ -212,7 +212,7 @@ public sealed partial class DiagnosticService
                 packageSchemaVersion = 1, exportId, exportedAtUtc = cutoff, exporterVersion = AppVersion,
                 runId = run?.Id, scope = run is null ? "application-session" : "visit-all-available-attempts",
                 sessionId = run is null ? selectedSession : null, environmentId = run is null ? selectedEnvironment : null,
-                testLabel = sanitizer.Clean(testLabel), partial, droppedEvents = DroppedEvents,
+                partial, droppedEvents = DroppedEvents,
                 attempts = attempts.Select(a => new { a.AttemptId, a.SessionId, a.EnvironmentId, a.StartedAtUtc, a.EndedAtUtc,
                     lastIncludedSequence = files.ContainsKey($"attempts/{a.AttemptId}/events.jsonl") ? GetLastSequence(files[$"attempts/{a.AttemptId}/events.jsonl"]) : 0 }),
                 screenshotsIncluded = includeScreenshots, notes = notes.Distinct().ToArray(), files = inventory

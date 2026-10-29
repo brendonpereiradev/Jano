@@ -36,6 +36,8 @@ public interface IMainDialogs
     void ShowWarning(string message);
     void ShowError(string message);
     Task ExportLogAsync(VisitRun? run);
+    string? ChooseSettingsExportPath();
+    string? ChooseSettingsImportPath();
 }
 
 public sealed class RelayCommand(Action execute, Func<bool> canExecute) : ICommand
@@ -104,9 +106,11 @@ public sealed class MainViewModel : INotifyPropertyChanged
         ExportLogCommand = new(() => _ = ExportLogAsync(), () => State != ScreenState.Cleaning && !IsExporting);
         ClearHistoryCommand = new(() => _ = ClearHistoryAsync(), () => State == ScreenState.Idle && !IsExporting && !IsPreview);
         SaveSettingsCommand = new(() => _ = SaveSettingsAsync(), () => IsUnlocked);
+        ExportSettingsCommand = new(() => _ = ExportSettingsAsync(), () => IsUnlocked);
+        ImportSettingsCommand = new(() => _ = ImportSettingsAsync(), () => IsUnlocked && !IsPreview);
         FieldLabels = JiraFields.All.Select(f => new FieldLabelItem(f, () => SettingsStatus = "")).ToList();
         commands = [ExecuteCommand, DiscardCommand, CheckAccessCommand, StopCommand, NewProfileCommand, EditProfileCommand,
-            DeleteProfileCommand, ExportLogCommand, ClearHistoryCommand, SaveSettingsCommand];
+            DeleteProfileCommand, ExportLogCommand, ClearHistoryCommand, SaveSettingsCommand, ExportSettingsCommand, ImportSettingsCommand];
     }
 
     public LocalStore Store => store;
@@ -120,6 +124,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public RelayCommand ExportLogCommand { get; }
     public RelayCommand ClearHistoryCommand { get; }
     public RelayCommand SaveSettingsCommand { get; }
+    public RelayCommand ExportSettingsCommand { get; }
+    public RelayCommand ImportSettingsCommand { get; }
 
     // Estado da tela
 
@@ -726,6 +732,56 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public async Task SaveSettingsAsync()
     {
         if (!IsUnlocked) return;
+        var copy = SettingsFromScreen();
+        var errors = ProfileValidation.ValidateSettings(copy);
+        if (errors.Count > 0) { ShowSettingsStatus(string.Join(Environment.NewLine, errors), true); return; }
+        await SafeAsync(async () =>
+        {
+            await store.SaveSettingsAsync(copy); settings = copy;
+            diagnostics.Configure(copy.Diagnostics);
+            ShowSettingsStatus("Configurações salvas.", false);
+        });
+    }
+
+    // Exporta o que está na tela, já validado, para que o arquivo possa ser importado como está.
+    public async Task ExportSettingsAsync()
+    {
+        if (!IsUnlocked) return;
+        var copy = SettingsFromScreen();
+        var errors = ProfileValidation.ValidateSettings(copy);
+        if (errors.Count > 0) { ShowSettingsStatus(string.Join(Environment.NewLine, errors), true); return; }
+        if (dialogs.ChooseSettingsExportPath() is not { } path) return;
+        await SafeAsync(async () =>
+        {
+            await store.ExportSettingsAsync(path, copy);
+            diagnostics.AppEvent("settings.exported", "Configurações exportadas.");
+            ShowSettingsStatus($"Configurações exportadas para {Path.GetFileName(path)}.", false);
+        });
+    }
+
+    // Tema e diagnóstico são escolhas deste computador e não vêm do arquivo.
+    public async Task ImportSettingsAsync()
+    {
+        if (!IsUnlocked || IsPreview) return;
+        if (dialogs.ChooseSettingsImportPath() is not { } path) return;
+        await SafeAsync(async () =>
+        {
+            var imported = await LocalStore.ReadSettingsFileAsync(path);
+            var errors = ProfileValidation.ValidateSettings(imported);
+            if (errors.Count > 0)
+                throw new InvalidOperationException("O arquivo não foi importado:" + Environment.NewLine + string.Join(Environment.NewLine, errors));
+            if (!dialogs.Confirm("Substituir as configurações atuais pelas do arquivo? Alterações não salvas nesta tela serão perdidas.")) return;
+            imported.Theme = settings.Theme; imported.Diagnostics = settings.Diagnostics ?? new DiagnosticOptions();
+            await store.SaveSettingsAsync(imported); settings = imported;
+            diagnostics.Configure(imported.Diagnostics);
+            diagnostics.AppEvent("settings.imported", "Configurações importadas.");
+            ShowSettings();
+            ShowSettingsStatus("Configurações importadas e salvas.", false);
+        });
+    }
+
+    private AppSettings SettingsFromScreen()
+    {
         var copy = Serialization.Copy(settings);
         copy.JiraUrl = JiraUrl.Trim().TrimEnd('/'); copy.PortalUrl = PortalUrl.Trim(); copy.QueueUrl = QueueUrl.Trim();
         copy.ClosingTeam = ClosingTeam.Trim();
@@ -740,14 +796,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 !string.Equals(f.Label.Trim(), f.Field.Default, StringComparison.OrdinalIgnoreCase))
             .ToDictionary(f => f.Field.Key, f => f.Label.Trim());
         copy.Diagnostics ??= new DiagnosticOptions();
-        var errors = ProfileValidation.ValidateSettings(copy);
-        if (errors.Count > 0) { ShowSettingsStatus(string.Join(Environment.NewLine, errors), true); return; }
-        await SafeAsync(async () =>
-        {
-            await store.SaveSettingsAsync(copy); settings = copy;
-            diagnostics.Configure(copy.Diagnostics);
-            ShowSettingsStatus("Configurações salvas.", false);
-        });
+        return copy;
     }
 
     private void ShowSettings()

@@ -1,4 +1,5 @@
 using System.Windows;
+using Microsoft.Win32;
 using Vistora.Core;
 using Vistora.Infrastructure;
 
@@ -37,6 +38,19 @@ public sealed class WindowDialogs(Func<Window?> owner, DiagnosticService diagnos
     public void ShowError(string message) => Show(message, MessageBoxButton.OK, MessageBoxImage.Error);
 
     public Task ExportLogAsync(VisitRun? run) => DiagnosticExportUi.ExportAsync(Owner!, diagnostics, run);
+
+    private const string SettingsFilter = "Configurações do Jano (*.json)|*.json";
+    public string? ChooseSettingsExportPath()
+    {
+        var file = new SaveFileDialog { Title = "Exportar configurações", Filter = SettingsFilter, DefaultExt = ".json", AddExtension = true,
+            OverwritePrompt = true, FileName = $"Jano-configuracoes-{DateTime.Now:yyyyMMdd}.json" };
+        return file.ShowDialog(Owner) == true ? file.FileName : null;
+    }
+    public string? ChooseSettingsImportPath()
+    {
+        var file = new OpenFileDialog { Title = "Importar configurações", Filter = SettingsFilter };
+        return file.ShowDialog(Owner) == true ? file.FileName : null;
+    }
 
     private MessageBoxResult Show(string message, MessageBoxButton buttons, MessageBoxImage image, string title = "",
         MessageBoxResult defaultResult = MessageBoxResult.None) => MessageWindow.Show(Owner, message, title, buttons, image, defaultResult);
